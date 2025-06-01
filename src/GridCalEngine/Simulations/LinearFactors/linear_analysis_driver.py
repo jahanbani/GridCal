@@ -6,6 +6,9 @@
 from __future__ import annotations
 import numpy as np
 from typing import Union, TYPE_CHECKING
+
+from numba.cuda.cudadrv.nvvm import nvvm_result
+
 from GridCalEngine.Devices.multi_circuit import MultiCircuit
 from GridCalEngine.Compilers.circuit_to_data import compile_numerical_circuit_at
 from GridCalEngine.Simulations.LinearFactors.linear_analysis import LinearAnalysis
@@ -45,11 +48,13 @@ class LinearAnalysisDriver(DriverTemplate):
         self.opf_results = opf_results
 
         # Results
-        self.results: LinearAnalysisResults = LinearAnalysisResults(n_br=self.grid.get_branch_number_wo_hvdc(),
-                                                                    n_bus=self.grid.get_bus_number(),
-                                                                    br_names=self.grid.get_branch_names_wo_hvdc(),
-                                                                    bus_names=self.grid.get_bus_names(),
-                                                                    bus_types=np.ones(self.grid.get_bus_number()))
+        self.results: LinearAnalysisResults = LinearAnalysisResults(
+            br_names=self.grid.get_branch_names(add_hvdc=False, add_vsc=False, add_switch=True),
+            bus_names=self.grid.get_bus_names(),
+            hvdc_names=self.grid.get_hvdc_names(),
+            vsc_names=self.grid.get_vsc_names(),
+            bus_types=np.ones(self.grid.get_bus_number())
+        )
 
         self.all_solved: bool = True
 
@@ -62,14 +67,14 @@ class LinearAnalysisDriver(DriverTemplate):
         self.report_progress(0)
 
         bus_names = self.grid.get_bus_names()
-        br_names = self.grid.get_branch_names_wo_hvdc()
+        br_names = self.grid.get_branch_names(add_hvdc=False, add_vsc=False, add_switch=True)
         bus_types = np.ones(len(bus_names), dtype=int)
         try:
             self.results = LinearAnalysisResults(
-                n_br=len(br_names),
-                n_bus=len(bus_names),
                 br_names=br_names,
                 bus_names=bus_names,
+                hvdc_names=self.grid.get_hvdc_names(),
+                vsc_names=self.grid.get_vsc_names(),
                 bus_types=bus_types
             )
 
@@ -96,21 +101,25 @@ class LinearAnalysisDriver(DriverTemplate):
             )
 
             analysis = LinearAnalysis(
-                numerical_circuit=nc,
+                nc=nc,
                 distributed_slack=self.options.distribute_slack,
                 correct_values=self.options.correct_values
             )
 
-            analysis.run()
             self.logger += analysis.logger
-            self.results.bus_names = analysis.numerical_circuit.bus_data.names
-            self.results.branch_names = analysis.numerical_circuit.passive_branch_data.names
-            self.results.bus_types = analysis.numerical_circuit.bus_data.bus_types
+            self.results.bus_names = nc.bus_data.names
+            self.results.branch_names = nc.passive_branch_data.names
+            self.results.bus_types = nc.bus_data.bus_types
             self.results.PTDF = analysis.PTDF
             self.results.LODF = analysis.LODF
 
+            self.results.HvdcDF = analysis.HvdcDF
+            self.results.HvdcODF = analysis.HvdcODF
+
+            self.results.VscDF = analysis.VscDF
+            self.results.VscODF = analysis.VscODF
+
             # compose the HVDC power Injections
-            bus_dict = self.grid.get_bus_index_dict()
             nbus = len(self.grid.buses)
 
             Shvdc, Losses_hvdc, Pf_hvdc, Pt_hvdc, loading_hvdc, n_free = nc.hvdc_data.get_power(Sbase=nc.Sbase,
@@ -119,7 +128,7 @@ class LinearAnalysisDriver(DriverTemplate):
             Pbus_pu = Sbus.real + Shvdc
             self.results.Sbus = Pbus_pu * nc.Sbase
             self.results.Sf = analysis.get_flows(Pbus_pu) * nc.Sbase
-            self.results.loading = self.results.Sf / (analysis.numerical_circuit.passive_branch_data.rates + 1e-20)
+            self.results.loading = self.results.Sf / (nc.passive_branch_data.rates + 1e-20)
 
         elif self.engine == EngineType.Bentayga:
 

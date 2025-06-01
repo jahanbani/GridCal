@@ -603,17 +603,6 @@ def get_snapshots_from_bentayga(circuit: MultiCircuit):
         data.Qmax_bus_ = btg_data.Qmax_bus
         data.Qmin_bus_ = btg_data.Qmin_bus
 
-        data.k_pf_tau = btg_data.control_indices.k_pf_tau
-        data.k_qf_m = btg_data.control_indices.k_qf_m
-        data.k_zero_beq = btg_data.control_indices.k_qf_beq
-        data.k_vf_beq = btg_data.control_indices.k_vf_beq
-        data.k_vt_m = btg_data.control_indices.k_v_m
-        data.k_qt_m = btg_data.control_indices.k_qt_m
-        data.k_pf_dp = btg_data.control_indices.k_pf_dp
-        data.i_vsc = btg_data.control_indices.i_vsc
-        data.i_vf_beq = btg_data.control_indices.iVfBeqBus
-        data.i_vt_m = btg_data.control_indices.iVtmaBus
-
         data_lst.append(data)
 
     return data_lst
@@ -689,7 +678,7 @@ def translate_bentayga_pf_results(grid: MultiCircuit, res) -> PowerFlowResults:
     :return:
     """
     results = PowerFlowResults(n=grid.get_bus_number(),
-                               m=grid.get_branch_number_wo_hvdc(),
+                               m=grid.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True),
                                n_hvdc=grid.get_hvdc_number(),
                                n_vsc=grid.get_vsc_number(),
                                n_gen=grid.get_generators_number(),

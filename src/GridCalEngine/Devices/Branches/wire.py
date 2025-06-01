@@ -12,23 +12,27 @@ class Wire(EditableDevice):
     This class represents a wire (an actual wire)
     to compose towers
     """
-    def __init__(self, name='', idtag: Union[str, None] = None,
-                 gmr: float = 0.01, r: float = 0.01, x: float = 0.0,
+
+    def __init__(self, name='',
+                 idtag: Union[str, None] = None,
+                 r: float = 0.01,
                  max_current: float = 1.0,
                  stranding: str = "",
                  material: str = "",
                  diameter: float = 0.0,
+                 diameter_internal: float = 0.0,
+                 is_tube: bool = False,
                  code: str = ""):
         """
         Wire definition
         :param name: Name of the wire type
-        :param gmr: Geometric Mean Radius (m)
         :param r: Resistance per unit length (Ohm / km)
-        :param x: Reactance per unit length (Ohm / km)
         :param max_current: Maximum current of the conductor in (kA)
         :param stranding: Stranding of the wire type
         :param material: Material of the wire type
-        :param diameter: Diameter of the wire type
+        :param diameter: Diameter of the wire type (mm)
+        :param diameter_internal: Internal diameter (in case of tubular conductor) (mm)
+        :param is_tube: Whether the wire is a tubular conductor
         :param code: Code of the wire type
         """
 
@@ -41,19 +45,19 @@ class Wire(EditableDevice):
         # self.wire_name = name
         self._stranding = str(stranding)
         self._material = str(material)
-        self.diameter = float(diameter)
-        self.R = float(r)
-        self.X = float(x)
-        self.GMR = float(gmr)
-        self.max_current = float(max_current)
+        self._diameter = float(diameter)
+        self._diameter_internal = float(diameter_internal)
+        self._is_tube = bool(is_tube)
+        self._R = float(r)
+        self._max_current = float(max_current)
 
         self.register(key='R', units='Ohm/km', tpe=float, definition='resistance of the conductor', old_names=['r'])
-        self.register(key='X', units='Ohm/km', tpe=float, definition='reactance of the conductor', old_names=['x'])
-        self.register(key='GMR', units='m', tpe=float, definition='Geometric Mean Radius of the conductor', old_names=['gmr'])
+        self.register(key='diameter', units='mm', tpe=float, definition='Diameter of wire', old_names=['GMR', 'gmr'])
+        self.register(key='diameter_internal', units='mm', tpe=float, definition='Internal radius of the conductor')
+        self.register(key='is_tube', units='', tpe=bool, definition='Is it a tubular conductor?')
         self.register(key='max_current', units='kA', tpe=float, definition='Maximum current of the conductor')
         self.register(key='stranding', tpe=str, definition='Stranding of wire')
         self.register(key='material', tpe=str, definition='Material of wire')
-        self.register(key='diameter', units='cm', tpe=float, definition='Diameter of wire')
 
     @property
     def stranding(self) -> str:
@@ -78,3 +82,43 @@ class Wire(EditableDevice):
     @material.setter
     def material(self, value: str):
         self._material = str(value)
+
+    @property
+    def diameter(self) -> float:
+        return self._diameter
+
+    @diameter.setter
+    def diameter(self, value: float) -> None:
+        self._diameter = float(value)
+
+    @property
+    def diameter_internal(self) -> float:
+        return self._diameter_internal
+
+    @diameter_internal.setter
+    def diameter_internal(self, value: float) -> None:
+        self._diameter_internal = float(value)
+
+    @property
+    def is_tube(self) -> bool:
+        return self._is_tube
+
+    @is_tube.setter
+    def is_tube(self, value: bool) -> None:
+        self._is_tube = bool(value)
+
+    @property
+    def R(self) -> float:
+        return self._R
+
+    @R.setter
+    def R(self, value: float) -> None:
+        self._R = float(value)
+
+    @property
+    def max_current(self) -> float:
+        return self._max_current
+
+    @max_current.setter
+    def max_current(self, value: float) -> None:
+        self._max_current = float(value)

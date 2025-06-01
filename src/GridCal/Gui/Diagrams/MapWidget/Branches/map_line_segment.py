@@ -3,7 +3,9 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
-from typing import TYPE_CHECKING
+
+import webbrowser
+from typing import List, TYPE_CHECKING
 from PySide6.QtCore import Qt, QPointF, QLineF
 from PySide6.QtGui import QPen, QColor, QCursor
 from PySide6.QtWidgets import QMenu, QGraphicsSceneContextMenuEvent
@@ -13,9 +15,10 @@ from GridCal.Gui.Diagrams.SchematicWidget.Branches.line_graphics_template import
 from GridCal.Gui.gui_functions import add_menu_entry
 from GridCal.Gui.messages import yes_no_question
 from GridCal.Gui.Diagrams.generic_graphics import ACTIVE, DEACTIVATED, OTHER
-from GridCal.Gui.Diagrams.SchematicWidget.Branches.line_editor import LineEditor
+from GridCal.Gui.Diagrams.Editors.line_editor import LineEditor
 
-from GridCalEngine.Devices.types import BRANCH_TYPES
+from GridCalEngine.Devices.types import BRANCH_TYPES, ALL_DEV_TYPES
+from GridCalEngine.enumerations import DeviceType
 
 if TYPE_CHECKING:
     from GridCal.Gui.Diagrams.MapWidget.Branches.line_location_graphic_item import LineLocationGraphicItem
@@ -23,16 +26,31 @@ if TYPE_CHECKING:
     from GridCal.Gui.Diagrams.MapWidget.grid_map_widget import GridMapWidget
 
 
+def open_street_view(lat: float, lon: float):
+    """
+    Call open street maps
+    :return:
+    """
+    # https://maps.google.com/?q=<lat>,<lng>
+    url = f"https://www.google.com/maps/?q={lat},{lon}"
+    webbrowser.open(url)
+
+
 class MapLineSegment(QGraphicsLineItem):
     """
     Segment joining two NodeGraphicItem
     """
 
-    def __init__(self, first: LineLocationGraphicItem, second: LineLocationGraphicItem, container: MapLineContainer):
+    def __init__(self,
+                 first: LineLocationGraphicItem,
+                 second: LineLocationGraphicItem,
+                 container: MapLineContainer,
+                 width: float):
         """
         Segment constructor
-        :param first: NodeGraphicItem
-        :param second: NodeGraphicItem
+        :param first: LineLocationGraphicItem
+        :param second: LineLocationGraphicItem
+        :param container: MapLineContainer
         """
         QGraphicsLineItem.__init__(self)
         self.first: LineLocationGraphicItem = first
@@ -41,8 +59,14 @@ class MapLineSegment(QGraphicsLineItem):
         self.draw_labels = True
 
         self.style = Qt.PenStyle.SolidLine
-        self.color = QColor(115, 115, 115, 200)  # translucent gray
-        self.width = 0.1
+        # self.color = QColor(115, 115, 115, 200)  # translucent gray
+
+        self.color = QColor(self.api_object.color)
+        self.color.setAlpha(128)
+        self.hoover_color = QColor(self.api_object.color)
+        self.hoover_color.setAlpha(180)
+
+        self.width = width
 
         self.pos1: QPointF = self.first.get_center_pos()
         self.pos2: QPointF = self.second.get_center_pos()
@@ -60,16 +84,23 @@ class MapLineSegment(QGraphicsLineItem):
                                     text_scale=0.01, show_text=False)
 
         # set callbacks
-        self.first.add_position_change_callback(self.set_from_side_coordinates)
-        self.second.add_position_change_callback(self.set_to_side_coordinates)
+        self.first.add_position_change_callback(self, self.set_from_side_coordinates)
+        self.second.add_position_change_callback(self, self.set_to_side_coordinates)
 
         self._pen = self.set_colour(self.color, self.style)
+        # self._pen.setCosmetic(True)
         self.update_endings()
         self.needsUpdate = True
         self.setZValue(0)
 
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def get_width(self) -> float:
+        return self.width
+
+    def get_arrow_size(self) -> float:
+        return self._arrow_size
 
     @property
     def api_object(self) -> BRANCH_TYPES:
@@ -87,26 +118,51 @@ class MapLineSegment(QGraphicsLineItem):
         """
         return self.container.editor
 
+    def delete_from_associations(self):
+        """
+        Delete the connections
+        """
+        self.first.delete_hosting_connection(self)
+        self.second.delete_hosting_connection(self)
+
+    def get_associated_widgets(self) -> List[MapLineContainer]:
+        """
+        This forwards to the map line container for the appropriate deletion of everything
+        :return:
+        """
+        return [self.container]
+
+    def get_associated_devices(self) -> List[ALL_DEV_TYPES]:
+        """
+        This forwards to the map line container for the appropriate deletion of everything
+        :return:
+        """
+        return [self.container.api_object]
+
     def set_width(self, width: float):
         """
 
         :param width:
         :return:
         """
-        if self._pen.widthF() != width:  # Only update if width changes
+
+        # self.setScale(width / self.width)  # Faster since it avoids repainting each QPen
+
+        if self.width != width:  # Only update if width changes
             self._pen.setWidthF(width)
             self.setPen(self._pen)
+            self.width = width
 
-    def set_arrow_scale(self, width: float):
+    def set_arrow_sizes(self, width: float):
         """
 
         :param width:
         :return:
         """
-        self.arrow_p_from.setScale(width)
-        self.arrow_q_from.setScale(width)
-        self.arrow_p_to.setScale(width)
-        self.arrow_q_to.setScale(width)
+        self.arrow_p_from.set_size(width)
+        self.arrow_q_from.set_size(width)
+        self.arrow_p_to.set_size(width)
+        self.arrow_q_to.set_size(width)
 
     def set_colour(self, color: QColor, style: Qt.PenStyle):
         """
@@ -119,10 +175,10 @@ class MapLineSegment(QGraphicsLineItem):
         pen = QPen(color, self.width, style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
 
         self.setPen(pen)
-        self.arrow_p_from.set_colour(color, self.arrow_p_from.w, style)
-        self.arrow_q_from.set_colour(color, self.arrow_q_from.w, style)
-        self.arrow_p_to.set_colour(color, self.arrow_p_to.w, style)
-        self.arrow_q_to.set_colour(color, self.arrow_q_to.w, style)
+        self.arrow_p_from.set_colour(color)
+        self.arrow_q_from.set_colour(color)
+        self.arrow_p_to.set_colour(color)
+        self.arrow_q_to.set_colour(color)
 
         return pen
 
@@ -184,6 +240,7 @@ class MapLineSegment(QGraphicsLineItem):
         :param event:
         :return:
         """
+
         menu = QMenu()
 
         menu.addSection("Line")
@@ -205,12 +262,71 @@ class MapLineSegment(QGraphicsLineItem):
                        function_ptr=self.call_editor,
                        icon_path=":/Icons/icons/edit.svg")
 
+        # We could create a new icon for this I guess
+        add_menu_entry(menu=menu,
+                       text="Calculate total length",
+                       function_ptr=self.calculate_total_length,
+                       icon_path=":/Icons/icons/ruler.svg")
+
+        add_menu_entry(menu=menu,
+                       text="Consolidate selected objects coordinates",
+                       function_ptr=self.editor.consolidate_object_coordinates,
+                       icon_path=":/Icons/icons/assign_to_profile.svg")
+
         menu.addSeparator()
+
+        # Check if a substation is selected
+        has_substation = False
+        substation_counter = 0
+        line_counter = 0
+
+        for graphic_obj in self.editor._get_selected():
+            if hasattr(graphic_obj, 'api_object'):
+                if hasattr(graphic_obj.api_object, 'device_type'):
+                    if graphic_obj.api_object.device_type == DeviceType.SubstationDevice:
+                        has_substation = True
+                        substation_counter += 1
+                    elif graphic_obj.api_object.device_type == DeviceType.LineDevice:
+                        line_counter += 1
+
+        if line_counter > 1:
+
+            add_menu_entry(menu=menu,
+                           text="Merge selected lines",
+                           function_ptr=self.editor.merge_selected_lines,
+                           icon_path=":/Icons/icons/fusion.svg")
+
+        menu.addSeparator()
+
+        # Add the split line to substation option if a substation is selected
+        if has_substation:
+            if substation_counter == 1:
+                add_menu_entry(menu=menu,
+                               text="Split line to selected substation (In-Out)",
+                               function_ptr=self.editor.split_line_to_substation,
+                               icon_path=":/Icons/icons/divide.svg")
+
+            elif substation_counter == 2:
+
+                add_menu_entry(menu=menu,
+                               text="Change substation connection of the line",
+                               function_ptr=self.editor.change_line_connection,
+                               icon_path=":/Icons/icons/move_bus.svg")
+            else:
+                pass
 
         add_menu_entry(menu=menu,
                        text="Plot profiles",
                        function_ptr=self.plot_profiles,
                        icon_path=":/Icons/icons/plot.svg")
+
+        scene_pos = event.scenePos()  # Position in scene coordinates
+        x, y = scene_pos.x(), scene_pos.y()
+        lat, lon = self.editor.to_lat_lon(x=x, y=y)
+        add_menu_entry(menu=menu,
+                       text="Open in Street view",
+                       function_ptr=lambda: open_street_view(lat, lon),
+                       icon_path=":/Icons/icons/map.svg")
 
         add_menu_entry(menu=menu,
                        text="Assign rate to profile",
@@ -224,20 +340,15 @@ class MapLineSegment(QGraphicsLineItem):
 
         add_menu_entry(menu=menu,
                        text="Add point",
-                       function_ptr=self.add_path_node,
+                       function_ptr=self.add_node,
                        icon_path=":/Icons/icons/cn_icon.svg")
-
-        # add_menu_entry(menu=menu,
-        #                text="Add substation here",
-        #                function_ptr=self.add_substation_here,
-        #                icon_path=":/Icons/icons/substation.svg")
 
         menu.addSeparator()
 
         add_menu_entry(menu=menu,
                        text="Delete",
-                       function_ptr=self.remove,
-                       icon_path=":/Icons/icons/delete3.svg")
+                       function_ptr=self.delete,
+                       icon_path=":/Icons/icons/delete_schematic.svg")
 
         menu.exec_(event.screenPos())
 
@@ -293,7 +404,7 @@ class MapLineSegment(QGraphicsLineItem):
         Call the line editor
         :return:
         """
-        Sbase = self.editor.circuit.Sbase
+
         Vnom = self.api_object.get_max_bus_nominal_voltage()
         templates = list()
 
@@ -304,9 +415,13 @@ class MapLineSegment(QGraphicsLineItem):
                 if Vnom == temp.Vnom:
                     templates.append(temp)
 
-        current_template = self.api_object.template
-        dlg = LineEditor(line=self.api_object, Sbase=Sbase, frequency=self.editor.circuit.fBase,
-                         templates=templates, current_template=current_template)
+        dlg = LineEditor(
+            line=self.api_object,
+            Sbase=self.editor.circuit.Sbase,
+            frequency=self.editor.circuit.fBase,
+            templates=templates,
+            current_template=self.api_object.template
+        )
         dlg.exec()
 
     def plot_profiles(self) -> None:
@@ -330,7 +445,7 @@ class MapLineSegment(QGraphicsLineItem):
         """
         self.editor.set_active_status_to_profile(self.api_object)
 
-    def add_path_node(self):
+    def add_node(self):
         """
         Add a path to the container by adding a new graphical segment
         """
@@ -356,34 +471,6 @@ class MapLineSegment(QGraphicsLineItem):
 
                 elif self.first.index < self.second.index:
                     self.container.insert_new_node_at_position(self.second.index)
-
-    def add_substation_here(self):
-        """
-        Split the line
-        :return:
-        """
-        # TODO implement:
-        # The container of this segment must be split into two new containers
-        # and in the middle, we need to create a substation object
-
-        # self.editor.split_line_in_out(line_graphics=self)
-        pass
-
-    def remove(self, ask=True):
-        """
-        Remove this object in the diagram and the API
-        @return:
-        """
-        if ask:
-            dtype = self.api_object.device_type.value
-            ok = yes_no_question(f'Do you want to remove the {dtype} {self.api_object.name}?',
-                                 f'Remove {dtype}')
-        else:
-            ok = True
-
-        if ok:
-            self.editor.circuit.delete_branch(obj=self.api_object)
-            self.editor.delete_diagram_element(device=self.api_object)
 
     def set_arrows_with_power(self, Sf: complex | None, St: complex | None) -> None:
         """
@@ -415,3 +502,22 @@ class MapLineSegment(QGraphicsLineItem):
         self.arrow_q_from.set_value(Pf, True, Pf < 0, name="Pf", units="MW", draw_label=self.draw_labels)
         self.arrow_p_to.set_value(Pt, True, Pt > 0, name="Pt", units="MW", draw_label=self.draw_labels)
         self.arrow_q_to.set_value(Pt, True, Pt > 0, name="Pt", units="MW", draw_label=self.draw_labels)
+
+    def calculate_total_length(self):
+        """
+        Calculate the total length of the line by summing the distances between all waypoints
+        using the haversine formula, and update the line's length property.
+        """
+        # Use the container's method to calculate the total length
+        total_length = self.container.calculate_total_length()
+
+        # Show a message with the calculated length
+        self.editor.gui.show_info_toast(
+            message=f"Line length calculated: {total_length:.2f} km. The length property of line "
+                    f"{self.api_object.name} has been updated.")
+
+    def delete(self):
+        """
+        Delete this and all the MapLineContainer segments
+        """
+        self.container.delete()

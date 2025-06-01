@@ -6,6 +6,7 @@ from __future__ import annotations
 import numpy as np
 from typing import Tuple, Union, TYPE_CHECKING
 
+from GridCalEngine import SubObjectType
 from GridCalEngine.basic_structures import Logger
 from GridCalEngine.Devices.Substation.substation import Substation
 from GridCalEngine.Devices.Substation.voltage_level import VoltageLevel
@@ -15,6 +16,7 @@ from GridCalEngine.enumerations import BuildStatus, DeviceType
 from GridCalEngine.Devices.Parents.physical_device import PhysicalDevice
 from GridCalEngine.Devices.Aggregation.branch_group import BranchGroup
 from GridCalEngine.Devices.profile import Profile
+from GridCalEngine.Devices.admittance_matrix import AdmittanceMatrix
 
 if TYPE_CHECKING:
     from GridCalEngine.Devices.types import CONNECTION_TYPE
@@ -63,7 +65,8 @@ class BranchParent(PhysicalDevice):
                  capex: float,
                  opex: float,
                  cost: float,
-                 device_type: DeviceType):
+                 device_type: DeviceType,
+                 color: str | None = None):
         """
 
         :param name: name of the branch
@@ -85,6 +88,7 @@ class BranchParent(PhysicalDevice):
         :param opex: Cost of operation. (e/MWh)
         :param cost: Cost of overloads. Used in OPF (e/MWh)
         :param device_type: device_type (passed on)
+        :param color: Color of the branch
         """
 
         PhysicalDevice.__init__(self,
@@ -120,6 +124,9 @@ class BranchParent(PhysicalDevice):
 
         self.build_status = build_status
 
+        self._ys = AdmittanceMatrix()
+        self._ysh = AdmittanceMatrix()
+
         # line rating in MVA
         if not isinstance(rate, Union[float, int]):
             raise ValueError("Rate must be a float")
@@ -137,6 +144,8 @@ class BranchParent(PhysicalDevice):
             raise ValueError("protection_rating_factor must be a float")
         self._protection_rating_factor = float(protection_rating_factor)
         self._protection_rating_factor_prof = Profile(default_value=protection_rating_factor, data_type=float)
+
+        self.color = color if color is not None else "#909090" # light gray
 
         # group of this branch
         self.group: Union[BranchGroup, None] = None
@@ -180,6 +189,13 @@ class BranchParent(PhysicalDevice):
         self.register('opex', units="e/MWh", tpe=float, definition="Cost of operation. Used in expansion planning.")
         self.register('group', units="", tpe=DeviceType.BranchGroupDevice,
                       definition="Group where this branch belongs")
+        self.register('ys', units="p.u.", tpe=SubObjectType.AdmittanceMatrix,
+                      definition='Series admittance matrix of the branch', editable=False, display=False)
+
+        self.register('ysh', units="p.u.", tpe=SubObjectType.AdmittanceMatrix,
+                      definition='Shunt admittance matrix of the branch', editable=False, display=False)
+        self.register(key='color', units='', tpe=str, definition='Color to paint the element in the map diagram',
+                      is_color=True)
 
     @property
     def bus_from(self) -> Bus:
@@ -389,6 +405,28 @@ class BranchParent(PhysicalDevice):
         else:
             raise ValueError(f'{val} is not a float')
 
+    @property
+    def ys(self) -> AdmittanceMatrix:
+        return self._ys
+
+    @ys.setter
+    def ys(self, val: AdmittanceMatrix):
+        if isinstance(val, AdmittanceMatrix):
+            self._ys = val
+        else:
+            raise ValueError(f'{val} is not a AdmittanceMatrix')
+
+    @property
+    def ysh(self) -> AdmittanceMatrix:
+        return self._ysh
+
+    @ysh.setter
+    def ysh(self, val: AdmittanceMatrix):
+        if isinstance(val, AdmittanceMatrix):
+            self._ysh = val
+        else:
+            raise ValueError(f'{val} is not a AdmittanceMatrix')
+
     def get_max_bus_nominal_voltage(self):
         """
         GEt the maximum nominal voltage
@@ -492,9 +530,10 @@ class BranchParent(PhysicalDevice):
 
                 if per < (1.0 - branch_connection_voltage_tolerance):
                     if logger is not None:
-                        logger.add_warning(msg="Converted line to transformer due to excessive nominal voltage difference",
-                                           device=self.idtag,
-                                           value=per)
+                        logger.add_warning(
+                            msg="Converted line to transformer due to excessive nominal voltage difference",
+                            device=self.idtag,
+                            value=per)
                     return True
                 else:
                     return False

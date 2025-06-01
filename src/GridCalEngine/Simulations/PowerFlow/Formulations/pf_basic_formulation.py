@@ -206,7 +206,7 @@ class PfBasicFormulation(PfFormulationTemplate):
                 # recompute the error based on the new Scalc and S0
                 self._f = self.fx()
 
-                # compute the rror
+                # compute the error
                 self._error = compute_fx_error(self._f)
 
         # converged?
@@ -235,6 +235,10 @@ class PfBasicFormulation(PfFormulationTemplate):
             self.adm.Ybus = self.adm.Ybus.tocsc()
 
         nbus = self.adm.Ybus.shape[0]
+
+        if self.options.verbose >= 2:
+            print("Ybus:")
+            print(self.adm.Ybus.toarray())
 
         # Create J in CSC order
         J = create_J_vc_csc(nbus, self.adm.Ybus.data, self.adm.Ybus.indptr, self.adm.Ybus.indices,
@@ -287,8 +291,8 @@ class PfBasicFormulation(PfFormulationTemplate):
 
         return NumericPowerFlowResults(V=self.V,
                                        Scalc=Sbus * self.nc.Sbase,
-                                       m=np.ones(self.nc.nbr, dtype=float),
-                                       tau=np.zeros(self.nc.nbr, dtype=float),
+                                       m=self.nc.active_branch_data.tap_module,
+                                       tau=self.nc.active_branch_data.tap_angle,
                                        Sf=Sf,
                                        St=St,
                                        If=If,

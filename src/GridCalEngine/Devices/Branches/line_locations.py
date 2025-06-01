@@ -39,6 +39,7 @@ class LineLocation(EditableDevice):
                                 code=code,
                                 device_type=DeviceType.LineLocation)
 
+        self.locations = None
         self.lat = lat
         self.long = lon
         self.alt = z
@@ -68,7 +69,7 @@ class LineLocations(EditableDevice):
         """
         Constructor
         :param name: Name
-        :param idtag: unique identifyer
+        :param idtag: unique identifier
         :param code: secondary code
         """
         EditableDevice.__init__(self,
@@ -95,6 +96,16 @@ class LineLocations(EditableDevice):
         :param idtag: Known idtag
         """
         self.data.append(LineLocation(lat=latitude, lon=longitude, z=altitude, seq=sequence, idtag=idtag))
+
+    def add_location(self, lat: float, long: float, alt: float = 0.0):
+        """
+        Add a location to the line
+        :param lat: Latitude (deg)
+        :param long: Longitude (deg)
+        :param alt: Altitude (m)
+        """
+        sequence = len(self.data)
+        self.add(sequence=sequence, latitude=lat, longitude=long, altitude=alt)
 
     def remove(self, loc: LineLocation):
         self.data.remove(loc)

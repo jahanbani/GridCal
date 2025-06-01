@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING, Union
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import QMenu, QLabel, QDoubleSpinBox, QPushButton, QVBoxLayout, QComboBox, QDialog, QGraphicsScene
+from PySide6.QtWidgets import QMenu, QLabel, QDoubleSpinBox, QPushButton, QVBoxLayout, QComboBox, QDialog
 from GridCal.Gui.gui_functions import get_list_model, add_menu_entry
+from GridCal.Gui.messages import warning_msg
 from GridCal.Gui.Diagrams.SchematicWidget.terminal_item import BarTerminalItem, RoundTerminalItem
 from GridCalEngine.Devices.Branches.line import SequenceLineType, OverheadLineType, UndergroundLineType
 from GridCalEngine.Devices.Branches.dc_line import DcLine
@@ -86,8 +87,12 @@ class DcLineEditor(QDialog):
                             R = self.current_template.R
 
                         elif isinstance(self.current_template, OverheadLineType):
-                            I = self.current_template.Imax
-                            R = self.current_template.R1
+                            if self.current_template.check():
+                                I = self.current_template.Imax[0]
+                                R, X1, B1, I_kA = self.current_template.get_sequence_values(0, 1)
+                            else:
+                                warning_msg(text=f"The template {self.current_template.name} contains errors",
+                                            title="Load template")
 
                     except:
                         pass
@@ -198,10 +203,17 @@ class DcLineEditor(QDialog):
             self.selected_template = template
 
         elif isinstance(template, OverheadLineType):
-            self.i_spinner.setValue(template.Imax)
-            self.r_spinner.setValue(template.R1)
+            if self.current_template.check():
+                R, X1, B1, I_kA = self.current_template.get_sequence_values(circuit_idx=0, seq=1)
+                self.i_spinner.setValue(I_kA)
+                self.r_spinner.setValue(R)
 
-            self.selected_template = template
+                self.selected_template = template
+            else:
+                warning_msg(text=f"The template {self.current_template.name} contains errors",
+                            title="Load template")
+
+
 
     def load_template_btn_click(self):
         """
@@ -240,6 +252,10 @@ class DcLineGraphicItem(LineGraphicTemplateItem):
                                          width=width,
                                          api_object=api_object,
                                          draw_labels=draw_labels)
+
+    @property
+    def api_object(self) -> DcLine:
+        return self._api_object
 
     def contextMenuEvent(self, event):
         """
@@ -301,7 +317,7 @@ class DcLineGraphicItem(LineGraphicTemplateItem):
             del_icon = QIcon()
             del_icon.addPixmap(QPixmap(":/Icons/icons/delete3.svg"))
             ra2.setIcon(del_icon)
-            ra2.triggered.connect(self.remove)
+            ra2.triggered.connect(self.delete)
 
             menu.exec_(event.screenPos())
         else:
@@ -330,7 +346,7 @@ class DcLineGraphicItem(LineGraphicTemplateItem):
         templates = self.editor.circuit.underground_cable_types + self.editor.circuit.overhead_line_types
         current_template = self.api_object.template
         dlg = DcLineEditor(self.api_object, Sbase, templates, current_template)
-        if dlg.exec_():
+        if dlg.exec():
             pass
 
     def add_to_templates(self):
@@ -341,7 +357,7 @@ class DcLineGraphicItem(LineGraphicTemplateItem):
         Sbase = self.editor.circuit.Sbase
 
         dlg = DcLineEditor(branch=self.api_object, Sbase=Sbase)
-        if dlg.exec_():
+        if dlg.exec():
             pass
 
 

@@ -34,7 +34,10 @@ class BlueMarbleTiles(Tiles):
     An object to source internet tiles for pySlip.
     """
 
-    def __init__(self, tiles_dir='blue_marble_tiles', http_proxy=None, name: str = 'Blue Marble'):
+    def __init__(self,
+                 tiles_dir='blue_marble_tiles',
+                 http_proxy=None,
+                 name: str = 'Blue Marble'):
         """
         Override the base class for these tiles.
 
@@ -44,20 +47,31 @@ class BlueMarbleTiles(Tiles):
         :param http_proxy:
         """
 
-        Tiles.__init__(self,
-                       tile_set_name=name,
-                       tile_set_short_name='BM Tiles',
-                       tile_set_version='1.0',
-                       levels=list(range(10)),
-                       tile_width=256,
-                       tile_height=256,
-                       tiles_dir=tiles_dir,
-                       max_lru=10000,
-                       servers=['https://s3.amazonaws.com', ],
-                       url_path='/com.modestmaps.bluemarble/{Z}-r{Y}-c{X}.jpg',
-                       max_server_requests=2,
-                       http_proxy=http_proxy,
-                       attribution="© NASA Blue Marble, © OpenStreetMap contributors")
+        super().__init__(tile_set_name=name,
+                         tile_set_short_name='BM Tiles',
+                         tile_set_version='1.0',
+                         levels=list(range(10)),
+                         tile_width=256,
+                         tile_height=256,
+                         tiles_dir=tiles_dir,
+                         max_lru=10000,
+                         servers=['https://s3.amazonaws.com', ],
+                         url_path='/com.modestmaps.bluemarble/{Z}-r{Y}-c{X}.jpg',
+                         max_server_requests=2,
+                         http_proxy=http_proxy,
+                         attribution="© NASA Blue Marble, © OpenStreetMap contributors")
+
+    def copy(self) -> "BlueMarbleTiles":
+        """
+        Copy of this object
+        :return:
+        """
+
+        cpy = BlueMarbleTiles(tiles_dir=self.tiles_dir,
+                              http_proxy=self.http_proxy,
+                              name=self.tile_set_name)
+
+        return cpy
 
     def Geo2Tile(self, longitude: float, latitude: float) -> Tuple[float, float]:
         """Convert geo to tile fractional coordinates for level in use.

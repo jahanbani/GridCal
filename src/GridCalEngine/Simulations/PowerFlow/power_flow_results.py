@@ -7,11 +7,12 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import matplotlib.colors as plt_colors
-from typing import List
+from typing import List, Tuple
+
 from GridCalEngine.Simulations.results_table import ResultsTable
 from GridCalEngine.Simulations.results_template import ResultsTemplate
 from GridCalEngine.DataStructures.numerical_circuit import NumericalCircuit
-from GridCalEngine.basic_structures import IntVec, Vec, StrVec, CxVec, ConvergenceReport
+from GridCalEngine.basic_structures import IntVec, Vec, StrVec, CxVec, ConvergenceReport, Logger
 from GridCalEngine.enumerations import StudyResultsType, ResultTypes, DeviceType
 
 
@@ -308,7 +309,7 @@ class PowerFlowResults(ResultsTemplate):
         :param nc:
         :return:
         """
-        rates = nc.Rates
+        rates = nc.passive_branch_data.rates
         self.loading = self.Sf / (rates + 1e-9)
 
     @property
@@ -437,7 +438,7 @@ class PowerFlowResults(ResultsTemplate):
     def get_bus_df(self) -> pd.DataFrame:
         """
         Get a DataFrame with the buses results
-        :return: DataFrame
+        :return: DataFrame, Vm in p.u., Va in deg, P in MW, Q in MVAr
         """
         return pd.DataFrame(data={'Vm': np.abs(self.voltage),
                                   'Va': np.angle(self.voltage, deg=True),
@@ -448,7 +449,7 @@ class PowerFlowResults(ResultsTemplate):
     def get_branch_df(self) -> pd.DataFrame:
         """
         Get a DataFrame with the branches results
-        :return: DataFrame
+        :return: DataFrame, Pf in MW, Qf in MVAr, Pt in MW, Qt in MVAr, loading in %, Ploss in MW, Qloss in MVAr
         """
         return pd.DataFrame(data={'Pf': self.Sf.real,
                                   'Qf': self.Sf.imag,
@@ -462,9 +463,9 @@ class PowerFlowResults(ResultsTemplate):
 
     def mdl(self, result_type: ResultTypes) -> ResultsTable:
         """
-
-        :param result_type:
-        :return:
+        get the ResultsTable model
+        :param result_type: ResultTypes
+        :return: ResultsTable instance
         """
 
         if result_type == ResultTypes.BusVoltageModule:
@@ -958,3 +959,27 @@ class PowerFlowResults(ResultsTemplate):
         df_branch = pd.DataFrame(data=branch_data, columns=branch_cols)
 
         return df_bus, df_branch
+
+
+    def compare(self, other: "PowerFlowResults", tol=1e-6) -> Tuple[bool, Logger]:
+        """
+        Compare this results with another
+        :param other: PowerFlowResults
+        :param tol: absolute comparison tolerance
+        :return: all ok?, Logger
+        """
+        logger = Logger()
+        all_ok = True
+        for prop_name, prp in self.data_variables.items():
+
+            if prp.tpe in [Vec, CxVec]:
+                a = getattr(self, prop_name)
+                b = getattr(other, prop_name)
+
+                ok = np.allclose(a, b, atol=tol)
+
+                if not ok:
+                    logger.add_error(msg="Difference", device_property=prop_name)
+                    all_ok = False
+
+        return all_ok, logger

@@ -23,50 +23,85 @@
 """
 A tile source that serves OpenStreetMap tiles from server(s).
 """
+from __future__ import  annotations
 import math
-from typing import Tuple
+from typing import Tuple, List
 from GridCal.Gui.Diagrams.MapWidget.Tiles.tiles import Tiles
 
 
 class CartoDbTiles(Tiles):
-    """An object to source server tiles for pySlipQt."""
+    """
+    An object to source server tiles for pySlipQt.
+    """
 
     def __init__(self, tiles_dir='open_street_map_tiles',
                  http_proxy=None,
-                 tile_servers=None,
-                 name: str = 'Carto positron'):
+                 tile_servers: List[str] | None = None,
+                 url_path='/{Z}/{X}/{Y}.png',
+                 name: str = 'Carto positron',
+                 tile_set_short_name='CartoDb Dark Matter',
+                 tile_set_version='1.0',
+                 attribution="© CARTO, © OpenStreetMap contributors",
+                 min_zoom: int = 0,
+                 max_zoom: int = 22,
+                 tile_width=256,
+                 tile_height=256):
         """
         Override the base class for these tiles.
-
         Basically, just fill in the BaseTiles class with values from above
         and provide the Geo2Tile() and Tile2Geo() methods.
-        :param tiles_dir:
-        :param http_proxy:
-        :param tile_servers:
+        :param tiles_dir: Tiles directory
+        :param http_proxy: Proxy URL
+        :param tile_servers: List of tile servers
+        :param url_path: extra path to query the tiles
+        :param name: Name of the tile set
+        :param tile_set_short_name: Short name of the tile set
+        :param tile_set_version: Version of the tile set
+        :param attribution: Attribution string of the tile set
+        :param min_zoom: Minimal zoom
+        :param max_zoom: Maximum zoom (+1)
+        :param tile_width: Width of the tile (px)
+        :param tile_height: Height of the tile (px)
         """
 
         super().__init__(tile_set_name=name,
-                         tile_set_short_name='CartoDb Dark Matter',
-                         tile_set_version='1.0',
-                         levels=list(range(22)),
-                         tile_width=256,
-                         tile_height=256,
+                         tile_set_short_name=tile_set_short_name,
+                         tile_set_version=tile_set_version,
+                         levels=[z for z in range(min_zoom, max_zoom)],
+                         tile_width=tile_width,
+                         tile_height=tile_height,
                          tiles_dir=tiles_dir,
-                         servers=[
-                             "https://basemaps.cartocdn.com/dark_all/"
-                         ] if tile_servers is None else tile_servers,
-                         url_path='/{Z}/{X}/{Y}.png',
+                         servers=["https://basemaps.cartocdn.com/dark_all/"] if tile_servers is None else tile_servers,
+                         url_path=url_path,
                          max_server_requests=2,
                          max_lru=10000,
                          http_proxy=http_proxy,
-                         attribution="© CARTO, © OpenStreetMap contributors")
-        # TODO: implement map wrap-around
-        #        self.wrap_x = True
-        #        self.wrap_y = False
+                         attribution=attribution)
 
         # get tile information into instance
         self.level = min(self.levels)
         self.num_tiles_x, self.num_tiles_y, self.ppd_x, self.ppd_y = self.GetInfo(self.level)
+
+    def copy(self) -> "CartoDbTiles":
+        """
+        Copy of this object
+        :return: CartoDbTiles
+        """
+        cpy = CartoDbTiles(tiles_dir=self.tiles_dir,
+                           http_proxy=self.http_proxy,
+                           tile_servers=self.servers.copy(),
+                           url_path=self.url_path,
+                           name=self.tile_set_name,
+                           tile_set_short_name=self.tile_set_short_name,
+                           tile_set_version=self.tile_set_version,
+                           attribution=self.attribution_string,
+                           min_zoom=self.min_level,
+                           max_zoom=self.max_level,
+                           tile_width=self.tile_width,
+                           tile_height=self.tile_height
+                           )
+
+        return cpy
 
     def Geo2Tile(self, longitude: float, latitude: float) -> Tuple[float, float]:
         """

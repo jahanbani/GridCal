@@ -112,8 +112,6 @@ class Profile:
 
         self._initialized: bool = False
 
-        self._default_value = default_value
-
         if arr is not None:
             self.set(arr=arr)
 
@@ -149,12 +147,15 @@ class Profile:
         """
         if self._sparse_array is not None:
             return self._sparse_array.get_map()
+        else:
+            print("no sparse array!")
+            return dict()
 
     @property
     def dtype(self) -> Union[bool, int, float, DeviceType]:
         """
-        Get the declared type
-        :return: type
+        Get the declared data type
+        :return: data type
         """
         return self._dtype
 
@@ -164,7 +165,10 @@ class Profile:
         Get the declared type
         :return: default_value
         """
-        return self._default_value
+        if self.sparse_array is not None:
+            return self.sparse_array.default_value
+        else:
+            return 0
 
     @default_value.setter
     def default_value(self, val):
@@ -173,7 +177,6 @@ class Profile:
         :param val:
         :return:
         """
-        self._default_value = val
         if self.sparse_array is not None:
             self.sparse_array.default_value = self.default_value
 
@@ -224,7 +227,16 @@ class Profile:
         :param map_data: map with the data
         """
         self._is_sparse = True
-        self._sparse_array = SparseArray(data_type=self.dtype)
+
+        try:
+            # try casting the default value, if failing use a proper one
+            if default_value is not None:
+                a = self.dtype(default_value)
+            self._sparse_array = SparseArray(data_type=self.dtype, default_value=default_value)
+        except ValueError:
+            self._sparse_array = SparseArray(data_type=self.dtype, default_value=self._sparse_array.default_value)
+
+
         if map_data is None:
             self._sparse_array.create(size=size, default_value=default_value)
         else:
@@ -259,6 +271,11 @@ class Profile:
         :param arr:
         :return:
         """
+        if self.size() > 0:
+            if len(arr) != self.size():
+                raise ValueError("The array must have the same size as the profile")
+
+
         if len(arr) > 0:
 
             # Count occurrences of each element in the array
@@ -278,7 +295,7 @@ class Profile:
 
                 if check_type(dtype=self.dtype, value=base):
                     self._is_sparse = True
-                    self._sparse_array = SparseArray(data_type=self.dtype)
+                    self._sparse_array = SparseArray(data_type=self.dtype, default_value=base)
 
                     if most_common_count > 1:
                         if isinstance(arr, np.ndarray):
@@ -318,12 +335,24 @@ class Profile:
         if self._is_sparse == other._is_sparse:
 
             if self._is_sparse:
-                return self._sparse_array == other._sparse_array
+                if self._sparse_array is None and other._sparse_array is None:
+                    return self.default_value == other.default_value
+                else:
+                    return self._sparse_array == other._sparse_array
             else:
-                return np.array_equal(self._dense_array, other._dense_array)
+                if self._dense_array is None and other._dense_array is None:
+                    return self.default_value == other.default_value
+                else:
+                    if self.dtype == float:
+                        return np.allclose(self._dense_array, other._dense_array, atol=1.e-10)
+                    else:
+                        return np.array_equal(self._dense_array, other._dense_array)
 
         else:
             return False
+
+    def __ne__(self, other: "Profile") -> bool:
+        return not self.__eq__(other)
 
     def __getitem__(self, key: int):
         """
@@ -338,9 +367,8 @@ class Profile:
             if self._dense_array is None:
                 # WTF, initialize sparse
                 self._is_sparse = True
-                self._sparse_array = SparseArray(data_type=self.dtype)
-                self._sparse_array.default_value = self.default_value
-                print("Initializing sparse when querying, this signals a mis initilaization")
+                self._sparse_array = SparseArray(data_type=self.dtype, default_value = self.default_value)
+                print("Initializing sparse when querying, this signals a mis initialization")
                 return self.default_value
             else:
                 return self._dense_array[key]
@@ -431,7 +459,7 @@ class Profile:
         self.default_value = value
         self._is_sparse = True
         if self._sparse_array is None:
-            self._sparse_array = SparseArray(data_type=self.dtype)
+            self._sparse_array = SparseArray(data_type=self.dtype, default_value=value)
         self._sparse_array.fill(value)
         self._dense_array = None
 

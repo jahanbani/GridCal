@@ -9,7 +9,7 @@ import cmath
 import copy
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Tuple, Union, Set
+from typing import List, Dict, Tuple, Union, Set, TYPE_CHECKING
 from uuid import getnode as get_mac, uuid4
 import networkx as nx
 from matplotlib import pyplot as plt
@@ -23,8 +23,11 @@ import GridCalEngine.Devices as dev
 from GridCalEngine.Devices.types import ALL_DEV_TYPES, INJECTION_DEVICE_TYPES, FLUID_TYPES, AREA_TYPES
 from GridCalEngine.basic_structures import Logger
 import GridCalEngine.Topology.topology as tp
-from GridCalEngine.Topology.topology_processor import TopologyProcessorInfo, process_grid_topology_at
 from GridCalEngine.enumerations import DeviceType, ActionType, SubObjectType
+
+if TYPE_CHECKING:
+    from GridCalEngine.Simulations.OPF.opf_ts_results import OptimalPowerFlowTimeSeriesResults
+    from GridCalEngine.Simulations.OPF.opf_results import OptimalPowerFlowResults
 
 
 def get_system_user() -> str:
@@ -185,6 +188,35 @@ class MultiCircuit(Assets):
         # logger of events
         self.logger: Logger = Logger()
 
+    def to_dict(self):
+        """
+        Create grid configuration data
+        :return:
+        """
+        return {
+            'name': self.name,
+            'comments': self.comments,
+            'model_version': self.model_version,
+            'user_name': self.user_name,
+            'Sbase': self.Sbase,
+            'fBase': self.fBase,
+            'idtag': self.idtag,
+        }
+
+    def parse(self, data: Dict[str, str | int | float]):
+        """
+        Parse grid configuration data
+        :param data:
+        :return:
+        """
+        self.name = data.get("name", self.name)
+        self.comments = data.get("comments", self.comments)
+        self.model_version = data.get("model_version", self.model_version)
+        self.user_name = data.get("user_name", self.user_name)
+        self.Sbase = data.get("Sbase", self.Sbase)
+        self.fBase = data.get("fBase", self.fBase)
+        self.idtag = data.get("idtag", self.idtag)
+
     def __str__(self):
         return str(self.name)
 
@@ -235,7 +267,7 @@ class MultiCircuit(Assets):
         Get branch active matrix
         :return: array with branch active status
         """
-        active = np.empty((self.get_time_number(), self.get_branch_number_wo_hvdc()), dtype=int)
+        active = np.empty((self.get_time_number(), self.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True)), dtype=int)
         for i, b in enumerate(self.get_branches_wo_hvdc()):
             active[:, i] = b.active_prof.toarray()
         return active
@@ -257,6 +289,7 @@ class MultiCircuit(Assets):
         """
         cpy = MultiCircuit(name=self.name, Sbase=self.Sbase, fbase=self.fBase, idtag=self.idtag)
 
+        # TODO: make this list automatic
         ppts = ['branch_groups',
                 'lines',
                 'dc_lines',
@@ -269,7 +302,6 @@ class MultiCircuit(Assets):
                 'windings',
                 'series_reactances',
                 'buses',
-
                 'loads',
                 'generators',
                 'external_grids',
@@ -278,7 +310,6 @@ class MultiCircuit(Assets):
                 'static_generators',
                 'current_injections',
                 'controllable_shunts',
-
                 'connectivity_nodes',
                 'bus_bars',
                 'overhead_line_types',
@@ -419,7 +450,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_hvdc(hvdc)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_line(line)
 
         return hvdc
@@ -448,7 +479,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_transformer2w(transformer)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_line(line)
 
         return transformer
@@ -491,7 +522,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_battery(bus=gen.bus, api_obj=batt, cn=gen.cn)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_injection_device(gen)
 
         return batt
@@ -516,7 +547,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_vsc(vsc)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_line(line)
 
         return vsc
@@ -543,7 +574,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_upfc(upfc)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_line(line)
 
         return upfc
@@ -571,7 +602,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_series_reactance(series_reactance)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_line(line)
 
         return series_reactance
@@ -598,7 +629,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_switch(series_reactance)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_line(line)
 
         return series_reactance
@@ -620,7 +651,7 @@ class MultiCircuit(Assets):
         # add device to the circuit
         self.add_line(line)
 
-        # delete the line from the circuit
+        # delete_with_dialogue the line from the circuit
         self.delete_fluid_path(fluid_path)
 
         return line
@@ -651,7 +682,7 @@ class MultiCircuit(Assets):
             df_bus, df_branch = power_flow_results.export_all()
 
             df_bus.index = self.get_bus_names()
-            df_branch.index = self.get_branch_names_wo_hvdc()
+            df_branch.index = self.get_branch_names(add_hvdc=False, add_vsc=False, add_switch=True)
 
             with pd.ExcelWriter(file_name) as writer:  # pylint: disable=abstract-class-instantiated
                 df_bus.to_excel(writer, 'Bus results')
@@ -858,27 +889,6 @@ class MultiCircuit(Assets):
             elm.P *= factor
             elm.Q *= factor
 
-    def get_used_templates(self):
-        """
-        Get a list of the used templates in the objects
-        :return: list
-        """
-        val = set()
-
-        branches = self.get_branches()
-
-        for branch in branches:
-            if hasattr(branch, 'template'):
-                obj = getattr(branch, 'template')
-                val.add(obj)
-
-                # if it is a tower, add the wire templates too
-                if obj.device_type == DeviceType.OverheadLineTypeDevice:
-                    for wire in obj.wires_in_tower:
-                        val.add(wire)
-
-        return list(val)
-
     def get_automatic_precision(self):
         """
         Get the precision that simulates correctly the power flow
@@ -906,7 +916,7 @@ class MultiCircuit(Assets):
         fill the x and y value from the latitude and longitude values
         :param destructive: if true, the values are overwritten regardless, otherwise only if x and y are 0
         :param factor: Explosion factor
-        :param remove_offset: remove the sometimes huge offset coming from pyproj
+        :param remove_offset: delete the sometimes huge offset coming from pyproj
         :return Logger object
         """
 
@@ -932,7 +942,7 @@ class MultiCircuit(Assets):
         x *= factor
         y *= factor
 
-        # remove the offset
+        # delete the offset
         if remove_offset:
             x_min = np.min(x)
             y_max = np.max(y)
@@ -1105,7 +1115,7 @@ class MultiCircuit(Assets):
 
     def get_inter_buses_branches(self, a1: Set[dev.Bus], a2: Set[dev.Bus]) -> List[Tuple[int, object, float]]:
         """
-        Get the inter-buese Branches. HVDC Branches are not considered
+        Get the inter-buses Branches. HVDC Branches are not considered
         :param a1: Group of Buses 1
         :param a2: Group of Buses 1
         :return: List of (branch index, branch object, flow sense w.r.t the area exchange)
@@ -1291,7 +1301,8 @@ class MultiCircuit(Assets):
         # assign the new base
         self.Sbase = Sbase_new
 
-    def get_injection_devices_grouped_by_substation(self) -> Dict[dev.Substation, Dict[DeviceType, List[INJECTION_DEVICE_TYPES]]]:
+    def get_injection_devices_grouped_by_substation(self) -> Dict[
+        dev.Substation, Dict[DeviceType, List[INJECTION_DEVICE_TYPES]]]:
         """
         Get the injection devices grouped by bus and by device type
         :return: Dict[bus, Dict[DeviceType, List[Injection devs]]
@@ -1525,7 +1536,7 @@ class MultiCircuit(Assets):
 
                 if len(injection_devs_list) > 1:
                     # there are more than one device of this type in the bus
-                    # we keep the first, we delete the others
+                    # we keep the first, we delete_with_dialogue the others
                     if dev_tpe == DeviceType.GeneratorDevice:
                         _, to_delete = get_fused_device_lst(injection_devs_list,
                                                             ['P', 'Pmin', 'Pmax',
@@ -1547,7 +1558,7 @@ class MultiCircuit(Assets):
                     else:
                         to_delete = list()
 
-                    # delete elements
+                    # delete_with_dialogue elements
                     for elm in to_delete:
                         self.delete_injection_device(obj=elm)
                         list_of_deleted.append(elm)
@@ -1690,7 +1701,7 @@ class MultiCircuit(Assets):
         Get the complex bus power Injections
         :return: (ntime, nbr) [MVA]
         """
-        val = np.zeros((self.get_time_number(), self.get_branch_number_wo_hvdc()))
+        val = np.zeros((self.get_time_number(), self.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True)))
 
         for i, branch in enumerate(self.get_branches_wo_hvdc()):
             val[:, i] = branch.rate_prof.toarray()
@@ -1702,7 +1713,7 @@ class MultiCircuit(Assets):
         Get the complex bus power Injections
         :return: (nbr) [MVA]
         """
-        val = np.zeros(self.get_branch_number_wo_hvdc())
+        val = np.zeros(self.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True))
 
         for i, branch in enumerate(self.get_branches_wo_hvdc()):
             val[i] = branch.rate
@@ -1714,7 +1725,7 @@ class MultiCircuit(Assets):
         Get the complex bus power Injections
         :return: (ntime, nbr) [MVA]
         """
-        val = np.zeros((self.get_time_number(), self.get_branch_number_wo_hvdc()))
+        val = np.zeros((self.get_time_number(), self.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True)))
 
         for i, branch in enumerate(self.get_branches_wo_hvdc()):
             val[:, i] = branch.rate_prof.toarray() * branch.contingency_factor_prof.toarray()
@@ -1726,14 +1737,14 @@ class MultiCircuit(Assets):
         Get the complex bus power Injections
         :return: (nbr) [MVA]
         """
-        val = np.zeros(self.get_branch_number_wo_hvdc())
+        val = np.zeros(self.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True))
 
         for i, branch in enumerate(self.get_branches_wo_hvdc()):
             val[i] = branch.rate_prof.toarray() * branch.contingency_factor.toarray()
 
         return val
 
-    def get_fuel_rates_sparse_matrix(self) -> csc_matrix:
+    def get_gen_fuel_rates_sparse_matrix(self) -> csc_matrix:
         """
         Get the fuel rates matrix with relation to the generators
         should be used to get the fuel amounts by: Rates_mat x Pgen
@@ -1755,18 +1766,18 @@ class MultiCircuit(Assets):
 
         return gen_fuel_rates_matrix.tocsc()
 
-    def get_emission_rates_sparse_matrix(self) -> csc_matrix:
+    def get_gen_emission_rates_sparse_matrix(self) -> csc_matrix:
         """
         Get the emission rates matrix with relation to the generators
         should be used to get the fuel amounts by: Rates_mat x Pgen
         :return: CSC sparse matrix (n_emissions, n_gen)
         """
-        nemissions = len(self._emission_gases)
+        n_emissions = len(self._emission_gases)
         gen_index_dict = self.get_generator_indexing_dict()
         em_index_dict = self.get_emissions_indexing_dict()
-        nelm = len(gen_index_dict)
+        n_elm = len(gen_index_dict)
 
-        gen_emissions_rates_matrix: lil_matrix = lil_matrix((nemissions, nelm), dtype=float)
+        gen_emissions_rates_matrix: lil_matrix = lil_matrix((n_emissions, n_elm), dtype=float)
 
         # create associations between generators and emissions
         for generator in self.generators:
@@ -1777,7 +1788,7 @@ class MultiCircuit(Assets):
 
         return gen_emissions_rates_matrix.tocsc()
 
-    def get_technology_connectivity_matrix(self) -> csc_matrix:
+    def get_gen_technology_connectivity_matrix(self) -> csc_matrix:
         """
         Get the technology connectivity matrix with relation to the generators
         should be used to get the generation per technology by: Tech_mat x Pgen
@@ -1792,8 +1803,30 @@ class MultiCircuit(Assets):
 
         # create associations between generators and technologies
         for generator in self.generators:
-            for assoc in generator.fuels:
+            for assoc in generator.technologies:
                 gen_idx = gen_index_dict[generator.idtag]
+                tech_idx = tech_index_dict[assoc.api_object.idtag]
+                gen_tech_proportions_matrix[tech_idx, gen_idx] = assoc.value
+
+        return gen_tech_proportions_matrix.tocsc()
+
+    def get_batt_technology_connectivity_matrix(self) -> csc_matrix:
+        """
+        Get the technology connectivity matrix with relation to the generators
+        should be used to get the generation per technology by: Tech_mat x Pgen
+        :return: CSC sparse matrix (n_tech, n_gen)
+        """
+        ntech = len(self._technologies)
+        gen_index_dict = self.get_batteries_indexing_dict()
+        tech_index_dict = self.get_technology_indexing_dict()
+        nelm = len(gen_index_dict)
+
+        gen_tech_proportions_matrix: lil_matrix = lil_matrix((ntech, nelm), dtype=int)
+
+        # create associations between generators and technologies
+        for elm in self.batteries:
+            for assoc in elm.technologies:
+                gen_idx = gen_index_dict[elm.idtag]
                 tech_idx = tech_index_dict[assoc.api_object.idtag]
                 gen_tech_proportions_matrix[tech_idx, gen_idx] = assoc.value
 
@@ -1847,6 +1880,18 @@ class MultiCircuit(Assets):
         :return: equal?, Logger with the comparison information
         """
         logger = Logger()
+
+        if self.Sbase != grid2.Sbase:
+            logger.add_error(msg="Different Sbase",
+                             device_class="time",
+                             value=grid2.Sbase,
+                             expected_value=self.Sbase)
+
+        if self.fBase != grid2.fBase:
+            logger.add_error(msg="Different fBase",
+                             device_class="time",
+                             value=grid2.fBase,
+                             expected_value=self.fBase)
 
         if self.get_time_number() != grid2.get_time_number():
             nt = 0
@@ -1928,7 +1973,7 @@ class MultiCircuit(Assets):
                                                  expected_value=v1)
                         if prop.has_profile():
                             p1 = elm1.get_profile_by_prop(prop=prop)
-                            p2 = elm1.get_profile_by_prop(prop=prop)
+                            p2 = elm2.get_profile_by_prop(prop=prop)
 
                             if p1 != p2:
                                 logger.add_error(msg="Different profile values",
@@ -1976,12 +2021,15 @@ class MultiCircuit(Assets):
         return logger.error_count() == 0, logger
 
     def differentiate_circuits(self, base_grid: "MultiCircuit",
-                               detailed_profile_comparison: bool = True) -> Tuple[bool, Logger, "MultiCircuit"]:
+                               detailed_profile_comparison: bool = True,
+                               force_second_pass: bool = False) -> Tuple[bool, Logger, "MultiCircuit"]:
         """
         Compare this circuit with another circuits for equality
         :param base_grid: MultiCircuit used as comparison base
         :param detailed_profile_comparison: if true, profiles are compared element-wise with the getters
-        :return: equal?, Logger with the comparison information, Multicircuit with the elements that have changed
+        :param force_second_pass: if true, the base grid is inspected for elements that it contains that
+                                  this grid doesn't (deletions)
+        :return: equal?, Logger with the comparison information, MultiCircuit with the elements that have changed
         """
         logger = Logger()
 
@@ -1997,20 +2045,37 @@ class MultiCircuit(Assets):
         else:
             nt = self.get_time_number()
 
-        if self.snapshot_time != base_grid.snapshot_time:
+        if (self.snapshot_time.second != base_grid.snapshot_time.second or
+                self.snapshot_time.minute != base_grid.snapshot_time.minute or
+                self.snapshot_time.hour != base_grid.snapshot_time.hour or
+                self.snapshot_time.day != base_grid.snapshot_time.day or
+                self.snapshot_time.month != base_grid.snapshot_time.month or
+                self.snapshot_time.year != base_grid.snapshot_time.year):
             logger.add_error(msg="Different snapshot times",
                              device_class="snapshot time",
                              value=str(base_grid.get_snapshot_time_unix),
                              expected_value=self.get_snapshot_time_unix)
+        # if self.snapshot_time != base_grid.snapshot_time:
+        #     logger.add_error(msg="Different snapshot times",
+        #                      device_class="snapshot time",
+        #                      value=str(base_grid.get_snapshot_time_unix),
+        #                      expected_value=self.get_snapshot_time_unix)
+
+        # --------------------------------------------------------------------------------------------------------------
+        # Pass 1: compare this grid with the base to discover added and modified elements
+        # --------------------------------------------------------------------------------------------------------------
 
         # get a dictionary of all the elements of the other circuit
-        base_elements_dict, dict_ok = base_grid.get_all_elements_dict()
+        base_elements_dict, dict_ok = base_grid.get_all_elements_dict(logger=logger)
 
-        for elm_from_here in self.items():  # for every device...
+        if not dict_ok:
+            return True, logger, dgrid
+
+        for new_elm in self.items():  # for every device...
             action = ActionType.NoAction
 
             # try to search for the counterpart in the base circuit
-            elm_from_base = base_elements_dict.get(elm_from_here.idtag, None)
+            elm_from_base = base_elements_dict.get(new_elm.idtag, None)
 
             if elm_from_base is None:
                 # not found in the base, add it
@@ -2018,77 +2083,51 @@ class MultiCircuit(Assets):
 
             else:
                 # check differences
-                for prop_name, prop in elm_from_here.registered_properties.items():
-
-                    # compare the snapshot values
-                    v1 = elm_from_here.get_property_value(prop=prop, t_idx=None)
-                    v2 = elm_from_base.get_property_value(prop=prop, t_idx=None)
-
-                    if v1 != v2:
-                        logger.add_info(msg="Different snapshot values",
-                                        device_class=elm_from_here.device_type.value,
-                                        device_property=prop.name,
-                                        value=v2,
-                                        expected_value=v1)
-                        action = ActionType.Modify
-
-                    if prop.has_profile():
-                        p1 = elm_from_here.get_profile_by_prop(prop=prop)
-                        p2 = elm_from_here.get_profile_by_prop(prop=prop)
-
-                        if p1 != p2:
-                            logger.add_info(msg="Different profile values",
-                                            device_class=elm_from_here.device_type.value,
-                                            device_property=prop.name,
-                                            object_value=p2,
-                                            expected_object_value=p1)
-                            action = ActionType.Modify
-
-                        if detailed_profile_comparison:
-                            for t_idx in range(nt):
-
-                                v1 = p1[t_idx]
-                                v2 = p2[t_idx]
-
-                                if v1 != v2:
-                                    logger.add_info(msg="Different time series values",
-                                                    device_class=elm_from_here.device_type.value,
-                                                    device_property=prop.name,
-                                                    device=str(elm_from_here),
-                                                    value=v2,
-                                                    expected_value=v1)
-                                    action = ActionType.Modify
-
-                                v1b = elm_from_here.get_property_value(prop=prop, t_idx=t_idx)
-                                v2b = elm_from_base.get_property_value(prop=prop, t_idx=t_idx)
-
-                                if v1 != v1b:
-                                    logger.add_info(
-                                        msg="Profile values differ with different getter methods!",
-                                        device_class=elm_from_here.device_type.value,
-                                        device_property=prop.name,
-                                        device=str(elm_from_here),
-                                        value=v1b,
-                                        expected_value=v1)
-                                    action = ActionType.Modify
-
-                                if v2 != v2b:
-                                    logger.add_info(
-                                        msg="Profile getting values differ with different getter methods!",
-                                        device_class=elm_from_here.device_type.value,
-                                        device_property=prop.name,
-                                        device=str(elm_from_here),
-                                        value=v1b,
-                                        expected_value=v1)
-                                    action = ActionType.Modify
+                action, changed_props = elm_from_base.compare(
+                    other=new_elm,
+                    logger=logger,
+                    detailed_profile_comparison=detailed_profile_comparison,
+                    nt=nt
+                )
 
             if action != ActionType.NoAction:
-                new_element = elm_from_here.copy(forced_new_idtag=False)
+                new_element = new_elm.copy(forced_new_idtag=False)
                 new_element.action = action
                 dgrid.add_element(obj=new_element)
                 logger.add_info(msg="Device added in the diff circuit",
                                 device_class=new_element.device_type.value,
                                 device_property=new_element.name, )
+
+        # --------------------------------------------------------------------------------------------------------------
+        # Pass 2: compare base with this grid to discover deleted elements
+        # only relevant if both grids have the same idtag
+        # --------------------------------------------------------------------------------------------------------------
+        if self.idtag == base_grid.idtag or force_second_pass:
+
+            # get a dictionary of all the elements of the other circuit
+            here_elements_dict, dict_ok = self.get_all_elements_dict(logger=logger)
+
+            if not dict_ok:
+                return True, logger, dgrid
+
+            for base_elm in base_grid.items():
+
+                # try to search for the counterpart in the base circuit
+                elm_from_here = here_elements_dict.get(base_elm.idtag, None)
+
+                if elm_from_here is None:
+                    # not found in here, it was deleted
+
+                    new_element = base_elm.copy(forced_new_idtag=False)
+                    new_element.action = ActionType.Delete
+                    dgrid.add_element(obj=new_element)
+                    logger.add_info(msg="Device deleted in the diff circuit",
+                                    device_class=new_element.device_type.value,
+                                    device_property=new_element.name, )
+
+                else:
+                    # the element exists here, we already checked that
+                    pass
 
         # if any error in the logger, bad
         return logger.error_count() == 0, logger, dgrid
@@ -2117,14 +2156,19 @@ class MultiCircuit(Assets):
 
         logger = Logger()
 
+        all_elms_base_dict, ok = self.get_all_elements_dict(logger=logger)
+        if not ok:
+            return logger
+
         # add profiles if required
         if self.time_profile is not None:
-
             new_grid.time_profile = self.time_profile
             new_grid.ensure_profiles_exist()
 
         for new_elm in new_grid.items():
-            self.add_or_replace_object(api_obj=new_elm, logger=logger)
+            self.merge_object(api_obj=new_elm,
+                              all_elms_base_dict=all_elms_base_dict,
+                              logger=logger)
 
         return logger
 
@@ -2134,7 +2178,7 @@ class MultiCircuit(Assets):
                        cn_set: Set[dev.ConnectivityNode],
                        logger: Logger) -> None:
         """
-        Clean the branch refferences
+        Clean the branch references
         :param nt: number of time steps
         :param bus_set: Set of Buses
         :param cn_set: Set of connectivity nodes
@@ -2175,25 +2219,11 @@ class MultiCircuit(Assets):
                                         device_class=elm.device_type.value,
                                         device_property="cn_to")
 
-                all_bus_from_prof_none = True
-                all_bus_to_prof_none = True
-                for t_idx in range(nt):
-                    if elm.bus_from_prof[t_idx] is not None:
-                        if elm.bus_from_prof[t_idx] not in bus_set:
-                            elm.bus_from_prof[t_idx] = None
-                        else:
-                            all_bus_from_prof_none = False
-
-                    if elm.bus_to_prof[t_idx] is not None:
-                        if elm.bus_to_prof[t_idx] not in bus_set:
-                            elm.bus_to_prof[t_idx] = None
-                        else:
-                            all_bus_to_prof_none = False
-
-                # if the element is topologically isolated, delete it
-                if (all_bus_from_prof_none and all_bus_to_prof_none
-                        and elm.bus_from is None and elm.bus_to is None
-                        and elm.cn_from is None and elm.cn_to is None):
+                # if the element is topologically isolated, delete_with_dialogue it
+                if (elm.bus_from is None
+                        and elm.bus_to is None
+                        and elm.cn_from is None
+                        and elm.cn_to is None):
                     elements_to_delete.append(elm)
 
         for elm in elements_to_delete:
@@ -2233,16 +2263,8 @@ class MultiCircuit(Assets):
                                         device_class=elm.device_type.value,
                                         device_property="cn")
 
-                all_bus_prof_none = True
-                for t_idx in range(nt):
-                    if elm.bus_prof[t_idx] is not None:
-                        if elm.bus_prof[t_idx] not in bus_set:
-                            elm.bus_prof[t_idx] = None
-                        else:
-                            all_bus_prof_none = False
-
-                # if the element is topologically isolated, delete it
-                if all_bus_prof_none and elm.bus is None and elm.cn is None:
+                # if the element is topologically isolated, delete_with_dialogue it
+                if elm.bus is None and elm.cn is None:
                     elements_to_delete.append(elm)
 
         for elm in elements_to_delete:
@@ -2264,7 +2286,7 @@ class MultiCircuit(Assets):
             if elm.device_idtag not in all_dev.keys():
                 contingencies_to_delete.append(elm)
 
-        # pass 2: delete the "null" contingencies
+        # pass 2: delete_with_dialogue the "null" contingencies
         for elm in contingencies_to_delete:
             self.delete_contingency(obj=elm)
             logger.add_info("Deleted isolated contingency",
@@ -2278,7 +2300,7 @@ class MultiCircuit(Assets):
             group_idx = group_dict[elm.group]
             group_counter[group_idx] += 1
 
-        # pass 4: delete unrefferenced groups
+        # pass 4: delete_with_dialogue unrefferenced groups
         groups_to_delete = [elm for i, elm in enumerate(self._contingency_groups) if group_counter[i] == 0]
         for elm in groups_to_delete:
             self.delete_contingency_group(obj=elm)
@@ -2299,7 +2321,7 @@ class MultiCircuit(Assets):
             if elm.device_idtag not in all_dev.keys():
                 ra_to_delete.append(elm)
 
-        # pass 2: delete the "null" contingencies
+        # pass 2: delete_with_dialogue the "null" contingencies
         for elm in ra_to_delete:
             self.delete_remedial_action(obj=elm)
             logger.add_info("Deleted isolated remedial action",
@@ -2313,7 +2335,7 @@ class MultiCircuit(Assets):
             group_idx = group_dict[elm.group]
             group_counter[group_idx] += 1
 
-        # pass 4: delete unrefferenced groups
+        # pass 4: delete_with_dialogue unrefferenced groups
         groups_to_delete = [elm for i, elm in enumerate(self._remedial_action_groups) if group_counter[i] == 0]
         for elm in groups_to_delete:
             self.delete_remedial_action_group(obj=elm)
@@ -2334,7 +2356,7 @@ class MultiCircuit(Assets):
             if elm.device_idtag not in all_dev.keys():
                 contingencies_to_delete.append(elm)
 
-        # pass 2: delete the "null" contingencies
+        # pass 2: delete_with_dialogue the "null" contingencies
         for elm in contingencies_to_delete:
             self.delete_investment(obj=elm)
             logger.add_info("Deleted isolated investment",
@@ -2348,7 +2370,7 @@ class MultiCircuit(Assets):
             group_idx = group_dict[elm.group]
             group_counter[group_idx] += 1
 
-        # pass 4: delete unreferenced groups
+        # pass 4: delete_with_dialogue unreferenced groups
         groups_to_delete = [elm for i, elm in enumerate(self._investments_groups) if group_counter[i] == 0]
         for elm in groups_to_delete:
             self.delete_investment_groups(obj=elm)
@@ -2465,24 +2487,6 @@ class MultiCircuit(Assets):
         for b in bidx:
             self.delete_bus(b)
 
-    def process_topology_at(self,
-                            t_idx: Union[int, None] = None,
-                            logger: Union[Logger, None] = None,
-                            debug: int = 0) -> TopologyProcessorInfo:
-        """
-        Topology processor finding the Buses that calculate a certain node-breaker topology
-        This function fill the bus pointers into the grid object, and adds any new bus required for simulation
-        :param t_idx: Time index, None for the Snapshot
-        :param logger: Logger object
-        :param debug: Debug level
-        :return: TopologyProcessorInfo
-        """
-
-        return process_grid_topology_at(grid=self,
-                                        t_idx=t_idx,
-                                        logger=logger,
-                                        debug=debug)
-
     def split_line(self,
                    original_line: Union[dev.Line],
                    position: float,
@@ -2573,14 +2577,15 @@ class MultiCircuit(Assets):
         # add new stuff as new investment
         inv_group = dev.InvestmentsGroup(name=original_line.name + ' split', category='Line split')
         self.add_investments_group(inv_group)
-        self.add_investment(dev.Investment(name=mid_bus.name, device_idtag=mid_bus.idtag, group=inv_group))
-        self.add_investment(dev.Investment(name=br1.name, device_idtag=br1.idtag, group=inv_group))
-        self.add_investment(dev.Investment(name=br2.name, device_idtag=br2.idtag, group=inv_group))
+        self.add_investment(dev.Investment(name=mid_bus.name, device=mid_bus, group=inv_group))
+        self.add_investment(dev.Investment(name=br1.name, device=br1, group=inv_group))
+        self.add_investment(dev.Investment(name=br2.name, device=br2, group=inv_group))
 
         # include the deactivation of the original line
         self.add_investment(dev.Investment(name=original_line.name,
-                                           device_idtag=original_line.idtag,
-                                           status=False, group=inv_group))
+                                           device=original_line,
+                                           status=False,
+                                           group=inv_group))
 
         return mid_sub, mid_vl, mid_bus, br1, br2
 
@@ -2589,18 +2594,22 @@ class MultiCircuit(Assets):
                            position: float,
                            km_io: float):
         """
-
-        :param original_line:
-        :param position:
-        :param km_io:
-        :return:
+        Split line with in/out
+        :param original_line: Line device to split
+        :param position: Position in per-unit (0, 1) measured from the "from" side where the splits happens
+        :param km_io: Amount of kilometers to the Substation to connect with the in/out
+        :return: mid_sub, mid_vl, B1, B2, B3, br1, br2, br3, br4
         """
 
         # Each of the Branches will have the proportional impedance
-        # Bus_from           Middle_bus            Bus_To
-        # o----------------------o--------------------o
-        #   >-------- x -------->|
-        #   (x: distance measured in per unit (0~1)
+        # Bus_from              B1  B2                Bus_To
+        # o----------------------o o--------------------o
+        #                        | |   ^
+        #                        | |   | km_io: Distance of the in/out in km
+        #                        | |   ^
+        #                         o  B3 (substation bus)
+        #  >--------- x -------->|
+        #  x: distance measured in per unit (0~1) from the "from" node
 
         # C(x, y) = (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
 
@@ -2672,7 +2681,7 @@ class MultiCircuit(Assets):
                        contingency_factor=original_line.contingency_factor,
                        protection_rating_factor=original_line.protection_rating_factor)
 
-        # kilometers of the in/out appart from the original line
+        # kilometers of the in/out apart from the original line
         proportion_io = km_io / original_line.length
 
         br3 = dev.Line(name=original_line.name + ' in',
@@ -2727,24 +2736,17 @@ class MultiCircuit(Assets):
         # add new stuff as new investment
         inv_group = dev.InvestmentsGroup(name=original_line.name + ' in/out', category='Line in/out')
         self.add_investments_group(inv_group)
-        self.add_investment(
-            dev.Investment(name=B1.name, device_idtag=B1.idtag, status=True, group=inv_group))
-        self.add_investment(
-            dev.Investment(name=B2.name, device_idtag=B2.idtag, status=True, group=inv_group))
-        self.add_investment(
-            dev.Investment(name=B3.name, device_idtag=B3.idtag, status=True, group=inv_group))
-        self.add_investment(
-            dev.Investment(name=br1.name, device_idtag=br1.idtag, status=True, group=inv_group))
-        self.add_investment(
-            dev.Investment(name=br2.name, device_idtag=br2.idtag, status=True, group=inv_group))
-        self.add_investment(
-            dev.Investment(name=br3.name, device_idtag=br3.idtag, status=True, group=inv_group))
-        self.add_investment(
-            dev.Investment(name=br4.name, device_idtag=br4.idtag, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=B1.name, device=B1, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=B2.name, device=B2, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=B3.name, device=B3, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=br1.name, device=br1, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=br2.name, device=br2, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=br3.name, device=br3, status=True, group=inv_group))
+        self.add_investment(dev.Investment(name=br4.name, device=br4, status=True, group=inv_group))
 
         # include the deactivation of the original line
         self.add_investment(dev.Investment(name=original_line.name,
-                                           device_idtag=original_line.idtag,
+                                           device=original_line,
                                            status=False, group=inv_group))
 
         return mid_sub, mid_vl, B1, B2, B3, br1, br2, br3, br4
@@ -2759,3 +2761,33 @@ class MultiCircuit(Assets):
         self.underground_cable_types += data.underground_cable_types
         self.wire_types += data.wire_types
         self.sequence_line_types += data.sequence_line_types
+
+    def set_opf_ts_results(self, results: OptimalPowerFlowTimeSeriesResults):
+        """
+        Assign OptimalPowerFlowTimeSeriesResults to the objects
+        :param results: OptimalPowerFlowTimeSeriesResults
+        :return:
+        """
+        for i, elm in enumerate(self.get_generators()):
+            elm.P_prof.set(results.generator_power[:, i])
+
+        for i, elm in enumerate(self.get_batteries()):
+            elm.P_prof.set(results.battery_power[:, i])
+
+        for i, elm in enumerate(self.get_loads()):
+            elm.P_prof.set(results.load_power[:, i])
+
+    def set_opf_snapshot_results(self, results: OptimalPowerFlowResults):
+        """
+        Assign OptimalPowerFlowResults to the objects
+        :param results:OptimalPowerFlowResults
+        :return:
+        """
+        for i, elm in enumerate(self.get_generators()):
+            elm.P = results.generator_power[i]
+
+        for i, elm in enumerate(self.get_batteries()):
+            elm.P = results.battery_power[i]
+
+        # for i, elm in enumerate(self.get_loads()):
+        #     elm.P = results.load_power[i]

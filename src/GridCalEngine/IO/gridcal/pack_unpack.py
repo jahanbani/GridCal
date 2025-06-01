@@ -14,7 +14,7 @@ from GridCalEngine.Devices.multi_circuit import MultiCircuit
 import GridCalEngine.Devices as dev
 from GridCalEngine.Devices.Parents.editable_device import GCProp
 from GridCalEngine.Devices.profile import Profile
-from GridCalEngine.Devices.types import ALL_DEV_TYPES
+from GridCalEngine.Devices.types import ALL_DEV_TYPES, GRIDCAL_FILE_TYPE
 from GridCalEngine.enumerations import (DiagramType, DeviceType, SubObjectType, TapPhaseControl, TapModuleControl,
                                         ContingencyOperationTypes)
 
@@ -128,22 +128,6 @@ def gather_model_as_data_frames(circuit: MultiCircuit, logger: Logger = Logger()
     """
     dfs = dict()
 
-    # configuration ################################################################################################
-    obj = list()
-    obj.append(['BaseMVA', circuit.Sbase])
-    obj.append(['Version', 5])
-    obj.append(['Name', str(circuit.name)])
-    obj.append(['Comments', str(circuit.comments)])
-
-    # increase the model version
-    circuit.model_version += 1
-
-    obj.append(['ModelVersion', str(circuit.model_version)])
-    obj.append(['UserName', str(circuit.user_name)])
-    obj.append(['program', 'GridCal'])
-
-    dfs['config'] = pd.DataFrame(data=obj, columns=['Property', 'Value'], dtype=str)
-
     # get the master time profile
     time_profile = circuit.time_profile
     nt = len(time_profile) if time_profile is not None else 0
@@ -160,6 +144,24 @@ def gather_model_as_data_frames(circuit: MultiCircuit, logger: Logger = Logger()
     # generic object iteration
     ########################################################################################################
     if legacy:
+
+        # configuration ################################################################################################
+        obj = list()
+        obj.append(['BaseMVA', circuit.Sbase])
+        obj.append(['Version', 5])
+        obj.append(['Name', str(circuit.name)])
+        obj.append(['Comments', str(circuit.comments)])
+        obj.append(['idtag', str(circuit.idtag)])
+
+        # increase the model version
+        circuit.model_version += 1
+
+        obj.append(['ModelVersion', str(circuit.model_version)])
+        obj.append(['UserName', str(circuit.user_name)])
+        obj.append(['program', 'GridCal'])
+
+        dfs['config'] = pd.DataFrame(data=obj, columns=['Property', 'Value'], dtype=str)
+
         for object_type_name, object_sample in object_types.items():
 
             headers = object_sample.registered_properties.keys()
@@ -218,7 +220,7 @@ def gather_model_as_data_frames(circuit: MultiCircuit, logger: Logger = Logger()
         # because each tower contains a reference to a number of wires, these relations need to be stored as well
         associations = list()
         for tower in circuit.overhead_line_types:
-            for wire in tower.wires_in_tower:
+            for wire in tower.wires_in_tower.data:
                 associations.append([tower.name, wire.name, wire.xpos, wire.ypos, wire.phase])
 
         dfs['tower_wires'] = pd.DataFrame(data=associations,
@@ -399,10 +401,16 @@ def gridcal_object_to_json(elm: ALL_DEV_TYPES) -> Dict[str, str]:
         elif prop.tpe == SubObjectType.LineLocations:
             data[name] = obj.to_list()
 
+        elif prop.tpe == SubObjectType.ListOfWires:
+            data[name] = obj.to_list()
+
         elif prop.tpe == SubObjectType.TapChanger:
             data[name] = obj.to_dict()
 
         elif prop.tpe == SubObjectType.Associations:
+            data[name] = obj.to_dict()
+
+        elif prop.tpe == SubObjectType.AdmittanceMatrix:
             data[name] = obj.to_dict()
 
         elif prop.tpe == SubObjectType.Array:
@@ -463,6 +471,10 @@ def gather_model_as_jsons(circuit: MultiCircuit) -> Dict[str, Dict[str, str]]:
     data['time'] = {'unix': unix_time.tolist(),
                     'prob': list(np.ones(len(unix_time))),
                     'snapshot_unix': circuit.get_snapshot_time_unix()}
+
+    # gather the circuit
+    circuit.model_version += 1
+    data['circuit'] = circuit.to_dict()
 
     return data
 
@@ -622,7 +634,7 @@ class CreatedOnTheFly:
         :return:
         """
         con_group = dev.ContingencyGroup(name=elm.name)
-        conn = dev.Contingency(device_idtag=elm.idtag, prop=ContingencyOperationTypes.Active, group=con_group)
+        conn = dev.Contingency(device=elm, prop=ContingencyOperationTypes.Active, group=con_group)
 
         self.contingency_groups.append(con_group)
         self.contingencies.append(conn)
@@ -996,7 +1008,9 @@ def search_and_apply_json_profile(json_entry: Dict[str, Dict[str, Union[str, Uni
             # the profile was not found, so we fill it with the default stuff
             profile.fill(property_value)
         else:
-            get_profile_from_dict(profile=profile, data=json_profile, collection=collection)
+            get_profile_from_dict(profile=profile,
+                                  data=json_profile,
+                                  collection=collection)
 
 
 def parse_object_type_from_json(template_elm: ALL_DEV_TYPES,
@@ -1096,6 +1110,13 @@ def parse_object_type_from_json(template_elm: ALL_DEV_TYPES,
                                     locations_obj: dev.LineLocations = elm.get_snapshot_value(prop=gc_prop)
                                     locations_obj.parse(property_value)
 
+                                elif gc_prop.tpe == SubObjectType.ListOfWires:
+
+                                    # get the line locations object and fill it with the json data
+                                    list_of_wires: dev.ListOfWires = elm.get_snapshot_value(prop=gc_prop)
+                                    list_of_wires.parse(data=property_value,
+                                                        wire_dict=elements_dict_by_type[DeviceType.WireDevice])
+
                                 elif gc_prop.tpe == SubObjectType.TapChanger:
 
                                     # get the line locations object and fill it with the json data
@@ -1106,6 +1127,12 @@ def parse_object_type_from_json(template_elm: ALL_DEV_TYPES,
 
                                     val = np.array(property_value)
                                     elm.set_snapshot_value(gc_prop.name, val)
+
+                                elif gc_prop.tpe == SubObjectType.AdmittanceMatrix:
+
+                                    # get the line locations object and fill it with the json data
+                                    adm_mat: SubObjectType.AdmittanceMatrix = elm.get_snapshot_value(prop=gc_prop)
+                                    adm_mat.parse(property_value)
 
                                 elif gc_prop.tpe == SubObjectType.Associations:
 
@@ -1161,16 +1188,33 @@ def parse_object_type_from_json(template_elm: ALL_DEV_TYPES,
 
                                 try:
                                     val = gc_prop.tpe(property_value)
-                                    elm.set_snapshot_value(gc_prop.name, val)
-                                    search_and_apply_json_profile(json_entry=json_entry,
-                                                                  gc_prop=gc_prop,
-                                                                  elm=elm,
-                                                                  property_value=val)
 
-                                except ValueError:
-                                    logger.add_error(f'Cannot cast value to {gc_prop.tpe}',
+                                    try:
+                                        elm.set_snapshot_value(gc_prop.name, val)
+
+                                    except ValueError as e:
+                                        logger.add_error(f'Cannot set the snapshot',
+                                                         device=elm.name,
+                                                         value=property_value,
+                                                         comment=str(e))
+
+                                    try:
+                                        search_and_apply_json_profile(json_entry=json_entry,
+                                                                      gc_prop=gc_prop,
+                                                                      elm=elm,
+                                                                      property_value=val)
+
+                                    except ValueError as e:
+                                        logger.add_error(f'Cannot set the profile',
+                                                         device=elm.name,
+                                                         value=property_value,
+                                                         comment=str(e))
+
+                                except ValueError as e:
+                                    logger.add_error(f'Cannot cast the value to the snapshot',
                                                      device=elm.name,
-                                                     value=property_value)
+                                                     value=property_value,
+                                                     comment=str(e))
 
                             else:
                                 raise Exception(f'Unsupported property type: {gc_prop.tpe}')
@@ -1248,7 +1292,7 @@ def handle_legacy_jsons(model_data: Dict[str, List],
                                 value=f"{generator.name} -> {emission.name} at {rate}")
 
 
-def parse_gridcal_data(data: Dict[str, Union[str, float, pd.DataFrame, Dict[str, Any], List[Dict[str, Any]]]],
+def parse_gridcal_data(data: GRIDCAL_FILE_TYPE,
                        previous_circuit: Union[MultiCircuit, None] = None,
                        text_func: Union[Callable, None] = None,
                        progress_func: Union[Callable, None] = None,
@@ -1265,10 +1309,18 @@ def parse_gridcal_data(data: Dict[str, Union[str, float, pd.DataFrame, Dict[str,
     # create circuit
     circuit = MultiCircuit()
 
+    # Legacy circuit information parsing -------------------------------------------------------------------------------
     if 'name' in data.keys():
         circuit.name = str(data['name'])
         if circuit.name == 'nan':
             circuit.name = ''
+
+    if 'idtag' in data.keys():
+        val = str(data['idtag'])
+        if val != '':
+            circuit.idtag = val
+        else:
+            logger.add_warning("Had to create a new idtag", value=circuit.idtag)
 
     # set the base magnitudes
     if 'baseMVA' in data.keys():
@@ -1376,6 +1428,12 @@ def parse_gridcal_data(data: Dict[str, Union[str, float, pd.DataFrame, Dict[str,
 
         if len(model_data) > 0:
 
+            # parse circuit own data
+            circuit_data = model_data.get('circuit', None)
+            if circuit_data is not None:
+                circuit.parse(data=circuit_data)
+
+            # parse time
             tdata = model_data.get('time', None)
             if tdata is not None:
                 circuit.set_unix_time(arr=tdata['unix'])
@@ -1454,7 +1512,7 @@ def parse_gridcal_data(data: Dict[str, Union[str, float, pd.DataFrame, Dict[str,
     if text_func is not None:
         text_func("Parsing diagrams...")
 
-    # try to get the get the list of diagrams
+    # try to get the list of diagrams
     list_of_diagrams: List[Dict[str, Any]] = data.get('diagrams', None)
 
     if list_of_diagrams is not None:
@@ -1478,6 +1536,10 @@ def parse_gridcal_data(data: Dict[str, Union[str, float, pd.DataFrame, Dict[str,
 
     if text_func is not None:
         text_func("Done!")
+
+    # search contingencies, investments and remedial actions pointed devices
+    # and remove those that point nowhere
+    circuit.refine_pointer_objects(logger=logger)
 
     if circuit.has_time_series:
         circuit.ensure_profiles_exist()

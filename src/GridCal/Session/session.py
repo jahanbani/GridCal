@@ -3,7 +3,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
-import numpy as np
 from uuid import uuid4
 import pandas as pd
 from PySide6.QtCore import QThread, Signal
@@ -11,20 +10,19 @@ from typing import Dict, Union, List, Tuple, Any, Generator
 from collections.abc import Callable
 from warnings import warn
 
-from GridCalEngine.Simulations import ContingencyAnalysisOptions, AvailableTransferCapacityOptions, \
-    ContinuationPowerFlowOptions, ContinuationPowerFlowInput, PowerFlowOptions, ClusteringAnalysisOptions, \
-    InvestmentsEvaluationOptions
-# Module imports
 from GridCalEngine.Simulations.ATC.available_transfer_capacity_driver import (AvailableTransferCapacityDriver,
                                                                               AvailableTransferCapacityResults)
 from GridCalEngine.Simulations.ATC.available_transfer_capacity_ts_driver import (
-    AvailableTransferCapacityTimeSeriesDriver, AvailableTransferCapacityTimeSeriesResults)
+    AvailableTransferCapacityTimeSeriesDriver, AvailableTransferCapacityTimeSeriesResults
+)
 from GridCalEngine.Simulations.ContingencyAnalysis.contingency_analysis_driver import (ContingencyAnalysisDriver,
                                                                                        ContingencyAnalysisResults)
 from GridCalEngine.Simulations.ContingencyAnalysis.contingency_analysis_ts_driver import (
-    ContingencyAnalysisTimeSeriesDriver, ContingencyAnalysisTimeSeriesResults)
-from GridCalEngine.Simulations.ContinuationPowerFlow.continuation_power_flow_driver import (ContinuationPowerFlowDriver,
-                                                                                            ContinuationPowerFlowResults)
+    ContingencyAnalysisTimeSeriesDriver, ContingencyAnalysisTimeSeriesResults
+)
+from GridCalEngine.Simulations.ContinuationPowerFlow.continuation_power_flow_driver import (
+    ContinuationPowerFlowDriver, ContinuationPowerFlowResults
+)
 from GridCalEngine.Simulations.LinearFactors.linear_analysis_driver import LinearAnalysisDriver, LinearAnalysisResults
 from GridCalEngine.Simulations.LinearFactors.linear_analysis_ts_driver import (LinearAnalysisTimeSeriesDriver,
                                                                                LinearAnalysisTimeSeriesResults)
@@ -38,7 +36,7 @@ from GridCalEngine.Simulations.ShortCircuitStudies.short_circuit_driver import S
 from GridCalEngine.Simulations.Stochastic.stochastic_power_flow_driver import (StochasticPowerFlowDriver,
                                                                                StochasticPowerFlowResults)
 from GridCalEngine.Simulations.Clustering.clustering_driver import ClusteringDriver, ClusteringResults
-from GridCalEngine.Simulations.Stochastic.blackout_driver import CascadingResults, CascadingDriver
+from GridCalEngine.Simulations.Reliability.blackout_driver import CascadingResults, CascadingDriver
 from GridCalEngine.Simulations.InputsAnalysis.inputs_analysis_driver import InputsAnalysisResults, InputsAnalysisDriver
 from GridCalEngine.Simulations.InvestmentsEvaluation.investments_evaluation_driver import (InvestmentsEvaluationDriver,
                                                                                            InvestmentsEvaluationResults)
@@ -46,11 +44,13 @@ from GridCalEngine.Simulations.SigmaAnalysis.sigma_analysis_driver import SigmaA
 from GridCalEngine.Simulations.NTC.ntc_driver import OptimalNetTransferCapacityResults, OptimalNetTransferCapacityDriver
 from GridCalEngine.Simulations.NodalCapacity.nodal_capacity_ts_driver import (NodalCapacityTimeSeriesDriver,
                                                                               NodalCapacityTimeSeriesResults)
+from GridCalEngine.Simulations.Reliability.reliability_driver import ReliabilityStudyDriver, ReliabilityResults
 from GridCalEngine.Simulations.Topology.node_groups_driver import NodeGroupsDriver
 from GridCalEngine.Simulations.driver_template import DriverTemplate
 from GridCalEngine.Simulations.results_template import DriverToSave
 from GridCalEngine.Devices.multi_circuit import MultiCircuit
 from GridCalEngine.enumerations import ResultTypes, SimulationTypes
+from GridCalEngine.Simulations.driver_handler import create_driver
 from GridCalEngine.Simulations.types import DRIVER_OBJECTS, RESULTS_OBJECTS
 from GridCalEngine.basic_structures import Logger
 from GridCal.Gui.results_model import ResultsModel
@@ -177,7 +177,7 @@ class SimulationSession:
         :param text_func: Function to display text
         """
 
-        # create process
+        # create a process
         thr = GcThread(driver)
         thr.progress_signal.connect(prog_func)
         thr.progress_text.connect(text_func)
@@ -196,6 +196,14 @@ class SimulationSession:
 
         # run!
         thr.start()
+
+    def register_driver(self, driver: DRIVER_OBJECTS):
+        """
+        Register driver
+        :param driver:
+        :return:
+        """
+        self.drivers[driver.tpe] = driver
 
     def get_available_drivers(self):
         """
@@ -259,7 +267,7 @@ class SimulationSession:
     def delete_driver(self, driver_type: SimulationTypes) -> None:
         """
         Get the results of the driver
-        :param driver_type: driver type to delete
+        :param driver_type: driver type to delete_with_dialogue
         """
         if driver_type in self.drivers.keys():
             del self.drivers[driver_type]
@@ -323,105 +331,31 @@ class SimulationSession:
 
         time_indices = data_dict.get('time_indices', grid.get_all_time_indices())
 
-        # get the results' object dictionary
-        if study_name == AvailableTransferCapacityDriver.tpe.value:
-            drv = AvailableTransferCapacityDriver(grid=grid,
-                                                  options=AvailableTransferCapacityOptions())
+        driver_tpe = SimulationTypes(study_name)
 
-        elif study_name == AvailableTransferCapacityTimeSeriesDriver.tpe.value:
-            drv = AvailableTransferCapacityTimeSeriesDriver(grid=grid,
-                                                            options=AvailableTransferCapacityOptions(),
-                                                            time_indices=time_indices,
-                                                            clustering_results=None)
+        drv: DRIVER_OBJECTS | None = create_driver(
+            grid=grid,
+            driver_tpe=driver_tpe,
+            time_indices=time_indices
+        )
 
-        elif study_name == ContingencyAnalysisDriver.tpe.value:
-            drv = ContingencyAnalysisDriver(grid=grid,
-                                            options=ContingencyAnalysisOptions())
+        if drv is not None:
 
-        elif study_name == ContingencyAnalysisTimeSeriesDriver.tpe.value:
-            drv = ContingencyAnalysisTimeSeriesDriver(grid=grid,
-                                                      options=ContingencyAnalysisOptions(),
-                                                      time_indices=time_indices,
-                                                      clustering_results=None)
+            # fill in the saved results
+            drv.results.parse_saved_data(grid=grid, data_dict=data_dict, logger=logger)
 
-        elif study_name == ContinuationPowerFlowDriver.tpe.value:
-            n = grid.get_bus_number()
-            drv = ContinuationPowerFlowDriver(grid=grid,
-                                              options=ContinuationPowerFlowOptions(),
-                                              inputs=ContinuationPowerFlowInput(
-                                                  Sbase=np.zeros(n), Vbase=np.zeros(n), Starget=np.zeros(n)
-                                              ),
-                                              pf_options=PowerFlowOptions(),
-                                              opf_results=None)
+            # perform whatever operations are needed after loading
+            drv.results.consolidate_after_loading()
 
-        elif study_name == LinearAnalysisDriver.tpe.value:
-            drv = LinearAnalysisDriver(grid=grid, options=None)
+            # parse the logger if available
+            logger_data = data_dict.get('logger', None)
+            if logger_data is not None:
+                drv.logger.parse_df(df=logger_data)
 
-        elif study_name == ContinuationPowerFlowDriver.tpe.value:
-            drv = LinearAnalysisTimeSeriesDriver(grid=grid,
-                                                 options=None,
-                                                 time_indices=time_indices,
-                                                 clustering_results=None)
-
-        elif study_name == OptimalPowerFlowDriver.tpe.value:
-            drv = OptimalPowerFlowDriver(grid=grid, options=None)
-
-        elif study_name == OptimalPowerFlowTimeSeriesDriver.tpe.value:
-            drv = OptimalPowerFlowTimeSeriesDriver(grid=grid,
-                                                   options=None,
-                                                   time_indices=time_indices,
-                                                   clustering_results=None)
-
-        elif study_name == NodalCapacityTimeSeriesDriver.tpe.value:
-            drv = NodalCapacityTimeSeriesDriver(grid=grid,
-                                                options=None,
-                                                time_indices=time_indices,
-                                                clustering_results=None)
-
-        elif study_name == PowerFlowDriver.tpe.value:
-            drv = PowerFlowDriver(grid=grid, options=PowerFlowOptions())
-
-        elif study_name == PowerFlowTimeSeriesDriver.tpe.value:
-            drv = PowerFlowTimeSeriesDriver(grid=grid,
-                                            options=PowerFlowOptions(),
-                                            time_indices=time_indices,
-                                            clustering_results=None)
-
-        elif study_name == ShortCircuitDriver.tpe.value:
-            drv = ShortCircuitDriver(grid=grid,
-                                     options=None,
-                                     pf_options=None,
-                                     pf_results=None,
-                                     opf_results=None)
-
-        elif study_name == StochasticPowerFlowDriver.tpe.value:
-            drv = StochasticPowerFlowDriver(grid=grid, options=PowerFlowOptions())
-
-        elif study_name == ClusteringDriver.tpe.value:
-            drv = ClusteringDriver(grid=grid, options=ClusteringAnalysisOptions(0))
-
-        elif study_name == InvestmentsEvaluationDriver.tpe.value:
-            drv = InvestmentsEvaluationDriver(grid=grid,
-                                              options=InvestmentsEvaluationOptions(max_eval=0,
-                                                                                   pf_options=PowerFlowOptions()),)
-
+            # register the driver
+            self.register(drv)
         else:
             warn(f"Session {study_name} not implemented for disk retrieval :/")
-            return logger
-
-        # fill in the saved results
-        drv.results.parse_saved_data(grid=grid, data_dict=data_dict, logger=logger)
-
-        # perform whatever operations are needed after loading
-        drv.results.consolidate_after_loading()
-
-        # parse the logger if available
-        logger_data = data_dict.get('logger', None)
-        if logger_data is not None:
-            drv.logger.parse_df(df=logger_data)
-
-        # register the driver
-        self.register(drv)
 
         return logger
 
@@ -595,6 +529,15 @@ class SimulationSession:
         :return:
         """
         drv, results = self.get_driver_results(SimulationTypes.NodalCapacityTimeSeries_run)
+        return drv, results
+
+    @property
+    def reliability_analysis(self) -> Tuple[ReliabilityStudyDriver, ReliabilityResults]:
+        """
+
+        :return:
+        """
+        drv, results = self.get_driver_results(SimulationTypes.Reliability_run)
         return drv, results
 
     @property

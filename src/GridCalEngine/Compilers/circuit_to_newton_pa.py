@@ -1095,19 +1095,6 @@ def get_snapshots_from_newtonpa(circuit: MultiCircuit, override_branch_controls=
         data.Qmax_bus_ = qlim.qmax_bus
         data.Qmin_bus_ = qlim.qmin_bus
 
-        control_indices = npa_data.getSimulationIndices(Sbus=data.Sbus_[:, 0])
-
-        data.k_pf_tau = control_indices.k_pf_tau
-        data.k_qf_m = control_indices.k_qf_m
-        data.k_zero_beq = control_indices.k_qf_beq
-        data.k_vf_beq = control_indices.k_vf_beq
-        data.k_vt_m = control_indices.k_v_m
-        data.k_qt_m = control_indices.k_qt_m
-        data.k_pf_dp = control_indices.k_pf_dp
-        data.i_vsc = control_indices.i_vsc
-        data.i_vf_beq = control_indices.i_vf_beq
-        data.i_vt_m = control_indices.i_vt_m
-
         data_lst.append(data)
 
     return data_lst
@@ -1501,7 +1488,7 @@ def translate_newton_pa_pf_results(grid: MultiCircuit, res: "npa.PowerFlowResult
     :return: PowerFlowResults instance
     """
     results = PowerFlowResults(n=grid.get_bus_number(),
-                               m=grid.get_branch_number_wo_hvdc(),
+                               m=grid.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True),
                                n_hvdc=grid.get_hvdc_number(),
                                n_vsc=grid.get_vsc_number(),
                                n_gen=grid.get_generators_number(),
@@ -1567,6 +1554,7 @@ def translate_newton_pa_opf_results(grid: MultiCircuit, res: "npa.NonlinearOpfRe
                                       generator_names=res.generator_names,
                                       battery_names=res.battery_names,
                                       hvdc_names=res.hvdc_names,
+                                      vsc_names=grid.get_vsc_names(),
                                       bus_types=convert_bus_types(res.bus_types[0]),
                                       area_names=[a.name for a in grid.areas],
                                       F=res.F,
@@ -1644,9 +1632,11 @@ def translate_newton_pa_contingencies(grid: MultiCircuit,
 
     # declare the results
     results = ContingencyAnalysisResults(ncon=len(grid.get_contingency_groups()),
-                                         nbr=grid.get_branch_number_wo_hvdc(),
+                                         nbr=grid.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True),
                                          nbus=grid.get_bus_number(),
-                                         branch_names=grid.get_branch_names_wo_hvdc(),
+                                         branch_names=grid.get_branch_names(add_hvdc=False,
+                                                                            add_vsc=False,
+                                                                            add_switch=True),
                                          bus_names=grid.get_bus_names(),
                                          bus_types=grid.get_bus_default_types(),
                                          con_names=grid.get_contingency_group_names())

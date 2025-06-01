@@ -17,6 +17,39 @@ import GridCal.Gui.gui_functions as gf
 from GridCal.Gui.gui_functions import add_menu_entry
 
 
+def gui_struct_to_data(data_: Dict[str, Union[float, int, str, bool, Dict[str, Union[float, int, str, bool, Dict]]]],
+                       struct_: Dict[str, Dict[str, any]]):
+    """
+    Recursive function to get the config dictionary from the GUI values
+    :param data_: Dictionary to fill
+    :param struct_: the result with self.get_config_structure()
+    """
+    for key, value in struct_.items():
+        if isinstance(value, dict):
+            data_[key] = dict()
+            gui_struct_to_data(data_[key], value)
+        elif isinstance(value, QtWidgets.QComboBox):
+            data_[key] = value.currentText()
+        elif isinstance(value, QtWidgets.QDoubleSpinBox):
+            data_[key] = value.value()
+        elif isinstance(value, QtWidgets.QSpinBox):
+            data_[key] = value.value()
+        elif isinstance(value, QtWidgets.QCheckBox):
+            data_[key] = value.isChecked()
+        elif isinstance(value, QtWidgets.QRadioButton):
+            data_[key] = value.isChecked()
+        elif isinstance(value, str):
+            data_[key] = value
+        elif isinstance(value, int):
+            data_[key] = value
+        elif isinstance(value, float):
+            data_[key] = value
+        elif isinstance(value, bool):
+            data_[key] = value
+        else:
+            raise Exception(f'unknown structure {value}')
+
+
 def config_data_to_struct(data_: Dict[str, Union[Dict[str, Any], str, Any]],
                           struct_: Dict[str, Dict[str, Any]]) -> None:
     """
@@ -176,20 +209,23 @@ class ConfigurationMain(ResultsMain):
                     "investment_evaluation_method": self.ui.investment_evaluation_method_ComboBox,
                     "max_investments_evluation_number": self.ui.max_investments_evluation_number_spinBox,
                     "investment_evaluation_obj_func": self.ui.investment_evaluation_objfunc_ComboBox,
-                }
+                },
+                "stochastic": {
+                    "method": self.ui.stochastic_pf_method_comboBox,
+                    "voltage_variance": self.ui.tolerance_stochastic_spinBox,
+                    "number_of_samples": self.ui.max_iterations_stochastic_spinBox
+                },
+                "cascading": {
+                    "additional_islands": self.ui.cascading_islands_spinBox
+                },
+                "reliability": {
+                    "method": self.ui.reliability_method_comboBox,
+                    "number_of_samples": self.ui.reliability_method_comboBox
+                },
             },
             "linear": {
-
                 "ptdf_threshold": self.ui.ptdf_threshold_doubleSpinBox,
                 "lodf_threshold": self.ui.lodf_threshold_doubleSpinBox
-            },
-            "stochastic": {
-                "method": self.ui.stochastic_pf_method_comboBox,
-                "voltage_variance": self.ui.tolerance_stochastic_spinBox,
-                "number_of_samples": self.ui.max_iterations_stochastic_spinBox
-            },
-            "cascading": {
-                "additional_islands": self.ui.cascading_islands_spinBox
             },
             "power_flow": {
                 "solver": self.ui.solver_comboBox,
@@ -211,6 +247,7 @@ class ConfigurationMain(ResultsMain):
                 "apply_temperature_correction": self.ui.temperature_correction_checkBox,
                 "apply_impedance_tolerances": self.ui.apply_impedance_tolerances_checkBox,
                 "add_pf_report": self.ui.addPowerFlowReportCheckBox,
+                "initialize_angles": self.ui.initialize_pf_angles_checkBox,
             },
             "optimal_power_flow": {
                 "method": self.ui.lpf_solver_comboBox,
@@ -295,43 +332,9 @@ class ConfigurationMain(ResultsMain):
         Get a dictionary with the GUI configuration data
         :return:
         """
-
-        def struct_to_data(
-                data_: Dict[str, Union[float, int, str, bool, Dict[str, Union[float, int, str, bool, Dict]]]],
-                struct_: Dict[str, Dict[str, any]]):
-            """
-            Recursive function to get the config dictionary from the GUI values
-            :param data_: Dictionary to fill
-            :param struct_: result of self.get_config_structure()
-            """
-            for key, value in struct_.items():
-                if isinstance(value, dict):
-                    data_[key] = dict()
-                    struct_to_data(data_[key], value)
-                elif isinstance(value, QtWidgets.QComboBox):
-                    data_[key] = value.currentText()
-                elif isinstance(value, QtWidgets.QDoubleSpinBox):
-                    data_[key] = value.value()
-                elif isinstance(value, QtWidgets.QSpinBox):
-                    data_[key] = value.value()
-                elif isinstance(value, QtWidgets.QCheckBox):
-                    data_[key] = value.isChecked()
-                elif isinstance(value, QtWidgets.QRadioButton):
-                    data_[key] = value.isChecked()
-                elif isinstance(value, str):
-                    data_[key] = value
-                elif isinstance(value, int):
-                    data_[key] = value
-                elif isinstance(value, float):
-                    data_[key] = value
-                elif isinstance(value, bool):
-                    data_[key] = value
-                else:
-                    raise Exception(f'unknown structure {value}')
-
         struct = self.get_config_structure()
         data = dict()
-        struct_to_data(data, struct)
+        gui_struct_to_data(data, struct)
 
         return data
 
@@ -468,11 +471,10 @@ class ConfigurationMain(ResultsMain):
         :param fcn: some PluginFunction
         """
 
-        # call the main fuinction of the plugin
+        # call the main function of the plugin
         ret = fcn.get_pointer_lambda(gui_instance=self)()
 
         if fcn.call_gui and ret is not None:
             if hasattr(ret, "show"):
                 self.plugin_windows_list.append(ret)  # This avoids the window to be garbage collected and be displayed
                 ret.show()
-

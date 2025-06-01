@@ -3,7 +3,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
-from typing import Union, Any, TYPE_CHECKING, Callable, Dict
+from typing import List, Union, Any, TYPE_CHECKING, Callable, Dict
 from PySide6.QtCore import Qt, QPointF, QRectF, QRect
 from PySide6.QtGui import QPen, QCursor
 from PySide6.QtWidgets import (QGraphicsRectItem, QGraphicsItem, QGraphicsEllipseItem, QGraphicsSceneMouseEvent)
@@ -139,6 +139,13 @@ class BarTerminalItem(QGraphicsRectItem):
         """
         return self._hosting_connections
 
+    def get_hosted_graphics(self) ->List[LineGraphicTemplateItem]:
+        """
+        Get hosted graphics
+        :return:
+        """
+        return [graphic_obj for graphic_obj in self._hosting_connections.keys()]
+
     def update(self, rect: Union[QRectF, QRect] = ...):
         """
 
@@ -182,13 +189,18 @@ class BarTerminalItem(QGraphicsRectItem):
         """
         self.editor.start_connection(self)
 
-    def remove_all_connections(self) -> None:
+    def remove_all_connections(self, delete_from_db: bool ) -> None:
         """
         Removes all the terminal connections
         """
         for graphic_item, _ in self._hosting_connections.items():
-            self.editor.remove_element(graphic_object=graphic_item, device=graphic_item.api_object)
+            self.editor.remove_element(graphic_object=graphic_item,
+                                       device=graphic_item.api_object,
+                                       delete_from_db=delete_from_db)
 
+        self.clear()
+
+    def clear(self):
         self._hosting_connections.clear()
 
     def __str__(self):
@@ -216,10 +228,10 @@ class HandleItem(QGraphicsEllipseItem):
 
         self.callback = callback
 
-        self.setBrush(Qt.red)
+        self.setBrush(Qt.GlobalColor.red)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(self.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
-        self.setCursor(QCursor(Qt.SizeFDiagCursor))
+        self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any):
         """
@@ -251,7 +263,7 @@ class RoundTerminalItem(QGraphicsEllipseItem):
     def __init__(self,
                  name: str,
                  editor: SchematicWidget,
-                 parent: Union[None, CnGraphicItem] = None,
+                 parent: Union[CnGraphicItem, Transformer3WGraphicItem],
                  h=10.0,
                  w=10.0):
         """
@@ -262,20 +274,20 @@ class RoundTerminalItem(QGraphicsEllipseItem):
         """
 
         QGraphicsEllipseItem.__init__(self, QRectF(-6.0, -6.0, h, w), parent)
-        self.setCursor(QCursor(Qt.CrossCursor))
+        self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
         # Properties:
         self.color = ACTIVE['color']
         self.pen_width = 2
         self.style = ACTIVE['style']
-        self.setBrush(Qt.darkGray)
+        self.setBrush(Qt.GlobalColor.darkGray)
         self.setPen(QPen(self.color, self.pen_width, self.style))
 
         # terminal parent object
-        self.parent: Union[None, BusGraphicItem, Transformer3WGraphicItem, FluidNodeGraphicItem] = parent
+        self.parent: Union[BusGraphicItem, Transformer3WGraphicItem, FluidNodeGraphicItem] = parent
 
         # object -> callback
-        self._hosting_connections: Dict[LineGraphicTemplateItem, Callable[[float], None]] = dict()
+        self._hosting_connections: Dict[LineGraphicTemplateItem, Callable[[QPointF], None]] = dict()
 
         self.editor = editor
 
@@ -305,38 +317,38 @@ class RoundTerminalItem(QGraphicsEllipseItem):
         return self.rect().height()
 
     @property
-    def x(self) -> int:
+    def x(self) -> float:
         """
         x position
         """
         return self.pos().x()
 
     @property
-    def y(self) -> int:
+    def y(self) -> float:
         """
         y position
         """
         return self.pos().y()
 
     @property
-    def xc(self) -> int:
+    def xc(self) -> float:
         """
         x-center
         :return:
         """
-        return self.pos().x() - self.w / 2
+        return self.pos().x() - self.w / 2.0
 
     @property
-    def yc(self) -> int:
+    def yc(self) -> float:
         """
         Y-center
         :return:
         """
-        return self.pos().y() - self.h / 2
+        return self.pos().y() - self.h / 2.0
 
     def add_hosting_connection(self,
                                graphic_obj: LineGraphicTemplateItem,
-                               callback: Callable[[float], None]):
+                               callback: Callable[[QPointF], None]):
         """
         Add object graphically connected to the graphical bus
         :param graphic_obj: LineGraphicTemplateItem (or child of this)
@@ -354,6 +366,13 @@ class RoundTerminalItem(QGraphicsEllipseItem):
         else:
             print(f'No such hosting connection {self.name} -> {graphic_obj}')
 
+    def get_hosted_graphics(self) ->List[LineGraphicTemplateItem]:
+        """
+        Get hosted graphics
+        :return:
+        """
+        return [graphic_obj for graphic_obj in self._hosting_connections.keys()]
+
     def update(self, rect: Union[QRectF, QRect] = ...):
         """
 
@@ -364,7 +383,7 @@ class RoundTerminalItem(QGraphicsEllipseItem):
 
     def process_callbacks(self, parent_pos: QPointF, mul: float = 1.0):
         """
-        Send the callbacks, ussually setEndPos or setStartPos functions from the line template
+        Send the callbacks, usually setEndPos or setStartPos functions from the line template
         :param parent_pos: Parent position
         :param mul: Multiplier
         """
@@ -393,13 +412,18 @@ class RoundTerminalItem(QGraphicsEllipseItem):
         """
         self.editor.start_connection(self)
 
-    def remove_all_connections(self) -> None:
+    def remove_all_connections(self, delete_from_db: bool = True) -> None:
         """
         Removes all the terminal connections
         """
         for graphic_item, _ in self._hosting_connections.items():
-            self.editor.remove_element(graphic_object=graphic_item, device=graphic_item.api_object)
+            self.editor.remove_element(graphic_object=graphic_item,
+                                       device=graphic_item.api_object,
+                                       delete_from_db=delete_from_db)
 
+        self.clear()
+
+    def clear(self):
         self._hosting_connections.clear()
 
     def __str__(self):

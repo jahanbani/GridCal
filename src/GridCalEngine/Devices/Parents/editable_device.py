@@ -48,7 +48,8 @@ GCPROP_TYPES = Union[
     Type[SubstationTypes],
     Type[ContingencyOperationTypes],
     Type[BranchGroupTypes],
-    Type[ConverterControlType]
+    Type[ConverterControlType],
+    Type[DeviceType]
 ]
 
 
@@ -83,6 +84,23 @@ def parse_idtag(val: Union[str, None]) -> str:
         return str(val)
 
 
+def smart_compare(a, b, atol = 1.e-10):
+    """
+    Compares two Python objects with tolerance for numerical values.
+
+    If both inputs are numeric (int, float, complex, or NumPy numbers),
+    the function uses `np.isclose()` to compare them. For all other types, it falls back to
+    standard equality comparison (`==`).
+
+    a :First object to compare.
+    b :Second object to compare.
+    :return: bool
+    """
+    if isinstance(a, float) and isinstance(b, float):
+        return np.isclose(a, b, atol=atol)
+    return a == b
+
+
 class GCProp:
     """
     GridCal property
@@ -96,7 +114,9 @@ class GCProp:
                  profile_name: str = '',
                  display: bool = True,
                  editable: bool = True,
-                 old_names: List[str] = None):
+                 old_names: List[str] = None,
+                 is_color: bool = False,
+                 is_date: bool = False):
         """
         GridCal property
         :param prop_name:
@@ -106,6 +126,8 @@ class GCProp:
         :param profile_name: name of the associated profile property
         :param display: Display the property in the GUI
         :param editable: Is this editable?
+        :param is_color: Is this a color? i.e. the tpe is str, but it represents a color
+        :param is_date: Is this a date? i.e. the tpe is int but represents a date
         """
 
         self.name = prop_name
@@ -122,7 +144,13 @@ class GCProp:
 
         self.editable = editable
 
+        self.is_color = is_color
+
+        self.is_date = is_date
+
         self.old_names = old_names if old_names is not None else list()
+
+        self.selected_to_merge = True  # only applicable if we want to apply the value of this property on merge
 
     def has_profile(self) -> bool:
         """
@@ -217,6 +245,7 @@ class EditableDevice:
         self.comment: str = comment
 
         self.action: ActionType = ActionType.NoAction
+        self.selected_to_merge = True
 
         # list of registered properties. This is supremely useful when accessing via the Table and Tree models
         self.property_list: List[GCProp] = list()
@@ -369,7 +398,9 @@ class EditableDevice:
                  profile_name: str = '',
                  display: bool = True,
                  editable: bool = True,
-                 old_names: List[str] = None):
+                 old_names: List[str] = None,
+                 is_color: bool = False,
+                 is_date: bool = False):
         """
         Register property
         The property must exist, and if provided, the profile_name property must exist too
@@ -392,7 +423,9 @@ class EditableDevice:
                       profile_name=profile_name,
                       display=display,
                       editable=editable,
-                      old_names=old_names)
+                      old_names=old_names,
+                      is_color=is_color,
+                      is_date=is_date)
 
         if key in self.registered_properties.keys():
             raise Exception(f"Property {key} already registered!")
@@ -634,7 +667,7 @@ class EditableDevice:
                 # return the normal property
                 return getattr(self, prop.name)
 
-    def set_vaule(self, prop: GCProp, t_idx: Union[None, int], value: Any) -> None:
+    def set_value(self, prop: GCProp, t_idx: Union[None, int], value: Any) -> None:
         """
         Return value regardless of the property index
         :param prop: GCProp
@@ -853,3 +886,87 @@ class EditableDevice:
                                 device=self.idtag + ":" + self.name,
                                 device_property=prop.name,
                                 value=str(new_obj))
+                
+    def compare(self, other: Any,
+                logger: Logger,
+                detailed_profile_comparison=False,
+                nt=0) -> Tuple[ActionType, List[GCProp]]:
+        """
+        Compare two objects
+        :param other: other device
+        :param logger: Logger
+        :param detailed_profile_comparison: Compare profiles?
+        :param nt: number of time steps (get it from the circuit)
+        :return: ActionType
+        """
+        action = ActionType.NoAction
+        properties_changed: List[GCProp] = list()
+
+        # check differences
+        for prop_name, prop in self.registered_properties.items():
+
+            # compare the snapshot values
+            v1 = self.get_property_value(prop=prop, t_idx=None)
+            v2 = other.get_property_value(prop=prop, t_idx=None)
+
+            if not smart_compare(v1, v2):
+                logger.add_info(msg="Different snapshot values",
+                                device_class=self.device_type.value,
+                                device_property=prop.name,
+                                value=v2,
+                                expected_value=v1)
+                action = ActionType.Modify
+                properties_changed.append(prop)
+
+            if prop.has_profile():
+                p1 = self.get_profile_by_prop(prop=prop)
+                p2 = self.get_profile_by_prop(prop=prop)
+
+                if p1 != p2:
+                    logger.add_info(msg="Different profile values",
+                                    device_class=self.device_type.value,
+                                    device_property=prop.name,
+                                    object_value=p2,
+                                    expected_object_value=p1)
+                    action = ActionType.Modify
+                    properties_changed.append(prop)
+
+                if detailed_profile_comparison:
+                    for t_idx in range(nt):
+
+                        v1 = p1[t_idx]
+                        v2 = p2[t_idx]
+
+                        if not smart_compare(v1, v2):
+                            logger.add_info(msg="Different time series values",
+                                            device_class=self.device_type.value,
+                                            device_property=prop.name,
+                                            device=str(self),
+                                            value=v2,
+                                            expected_value=v1)
+                            action = ActionType.Modify
+
+                        v1b = self.get_property_value(prop=prop, t_idx=t_idx)
+                        v2b = other.get_property_value(prop=prop, t_idx=t_idx)
+
+                        if not smart_compare(v1, v1b):
+                            logger.add_info(
+                                msg="Profile values differ with different getter methods!",
+                                device_class=self.device_type.value,
+                                device_property=prop.name,
+                                device=str(self),
+                                value=v1b,
+                                expected_value=v1)
+                            action = ActionType.Modify
+
+                        if not smart_compare(v2, v2b):
+                            logger.add_info(
+                                msg="Profile getting values differ with different getter methods!",
+                                device_class=self.device_type.value,
+                                device_property=prop.name,
+                                device=str(self),
+                                value=v1b,
+                                expected_value=v1)
+                            action = ActionType.Modify
+
+        return action, properties_changed

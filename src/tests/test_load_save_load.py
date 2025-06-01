@@ -51,7 +51,7 @@ def test_load_save_load() -> None:
         # asset for failing
         assert equal
 
-        # if all ok, we can remove the test file
+        # if all ok, we can delete the test file
         os.remove(fname2)
 
 
@@ -61,7 +61,7 @@ def test_load_save_load2() -> None:
     This is according to issue #309
     :return:
     """
-    grid1 = gce.MultiCircuit()
+    grid1 = gce.MultiCircuit(Sbase=45)
     grid1.set_unix_time([0, 3600])
     b1 = grid1.add_bus()
     b2 = grid1.add_bus()
@@ -69,6 +69,19 @@ def test_load_save_load2() -> None:
     l1 = grid1.add_line(gce.Line(name='l1', bus_from=b1, bus_to=b2, rate=10.0))
     l2 = grid1.add_line(gce.Line(name='l2', bus_from=b2, bus_to=b3, rate=10.0))
     l3 = grid1.add_line(gce.Line(name='l3', bus_from=b3, bus_to=b1, rate=10.0))
+
+    wire1 = gce.Wire(name="w1")
+    wire2 = gce.Wire(name="w2")
+    wire3 = gce.Wire(name="w3")
+    tower = gce.OverheadLineType(name="Tower")
+    tower.add_wire_relationship(wire1, xpos=0, ypos=7, phase=1)
+    tower.add_wire_relationship(wire2, xpos=1.5, ypos=7, phase=1)
+    tower.add_wire_relationship(wire3, xpos=3, ypos=7, phase=1)
+    grid1.add_wire(wire1)
+    grid1.add_wire(wire2)
+    grid1.add_wire(wire3)
+
+    grid1.add_overhead_line(tower)
 
     l1.rate_prof[1] = 20.0
     l2.rate_prof[1] = 30.0
@@ -84,6 +97,9 @@ def test_load_save_load2() -> None:
     grid2 = gce.open_file(o_file)
 
     equal, logger = grid2.compare_circuits(grid1, detailed_profile_comparison=True)
+
+    if not equal:
+        logger.print()
 
     assert equal
 

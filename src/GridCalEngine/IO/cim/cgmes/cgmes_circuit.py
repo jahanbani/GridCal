@@ -125,7 +125,7 @@ def find_references(elements_by_type: Dict[str, List[Base]],
                                                                property_name=property_name,
                                                                association_inverse_dict=association_inverse_dict)
                                 if ref_attribute is not None:
-                                    referenced_object.add_reference(element, ref_attribute)
+                                    referenced_object.add_reference(element, ref_attribute, logger=logger)
 
                             else:
 
@@ -175,7 +175,7 @@ def find_references(elements_by_type: Dict[str, List[Base]],
                                                                    property_name=property_name,
                                                                    association_inverse_dict=association_inverse_dict)
                                     if ref_attribute is not None:
-                                        referenced_object.add_reference(element, ref_attribute)
+                                        referenced_object.add_reference(element, ref_attribute, logger=logger)
 
                                 else:
 
@@ -403,7 +403,7 @@ class CgmesCircuit(BaseCircuit):
         self.emit_progress(33)
         # convert the dictionaries to the internal class model,
         # this marks as used only the boundary set objects that are referenced,
-        # this allows to delete the excess of boundary set objects later
+        # this allows to delete_with_dialogue the excess of boundary set objects later
         convert_data_to_objects(data=self.data,
                                 all_objects_dict=self.all_objects_dict,
                                 all_objects_dict_boundary=self.all_objects_dict_boundary,
@@ -417,7 +417,7 @@ class CgmesCircuit(BaseCircuit):
         self.assign_data_to_lists()
 
         if delete_unused:
-            # delete the unused objects from the boundary set
+            # delete_with_dialogue the unused objects from the boundary set
             self.delete_unused()
 
         if detect_circular_references:
@@ -592,7 +592,7 @@ class CgmesCircuit(BaseCircuit):
         elements_by_type = dict()
         all_objects_dict = dict()
 
-        # delete elements without references
+        # delete_with_dialogue elements without references
         for class_name, elements in self.elements_by_type.items():
 
             objects_list = list()

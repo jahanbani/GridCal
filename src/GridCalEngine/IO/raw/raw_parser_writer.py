@@ -83,8 +83,6 @@ def interpret_line(raw_line: str, splitter=','):
     # Use re.split to apply the pattern
     elms = re.split(pattern, lne)
 
-    # elms = lne.split(splitter)
-
     for elm in elms:
 
         if "'" in elm:
@@ -92,7 +90,7 @@ def interpret_line(raw_line: str, splitter=','):
         else:
 
             if "/" in elm:
-                # the line might end with a comment "/ whatever" so we must remove the comment
+                # the line might end with a comment "/ whatever" so we must delete the comment
                 print("Comment detected:", elm, end="")
                 ss = elm.split("/")
                 elm = ss[0]
@@ -142,7 +140,7 @@ def read_and_split(file_name: str, text_func=None, progress_func=None) -> (List[
         for line_ in my_file:
 
             if line_[0] != '@':
-                # remove garbage
+                # delete garbage
                 lne: str = str(line_).strip()
 
                 if lne.startswith("program"):
@@ -221,6 +219,28 @@ def check_end_of_impedance_table(row: List[int | float | str]) -> bool:
     else:
         return False
 
+def is_valid(value: float | int | str):
+    return value is not None and isinstance(value, (int, float, str))
+
+def format_lines(data1: List[List[float | int | str]], logger: Logger) -> List[List[float | int | str]]:
+    """
+    Format PSSe lines
+    :param data1:
+    :param logger:
+    :return:
+    """
+    data = list()
+    for lst in data1:
+        sublist = list()
+        for val in lst:
+            if is_valid(val):
+                sublist.append(val)
+            else:
+                sublist.append(0)
+                logger.add_error("Invalid PSSe value", value=val)
+        data.append(sublist)
+
+    return data
 
 def read_raw(filename, text_func=None, progress_func=None, logger=Logger()) -> PsseCircuit:
     """
@@ -252,7 +272,7 @@ def read_raw(filename, text_func=None, progress_func=None, logger=Logger()) -> P
     # header -> new grid
     # grid = PSSeGrid(interpret_line(sections[0]))
     grid = PsseCircuit()
-    grid.parse(sections_dict['info'][0])
+    grid.parse(sections_dict['info'][0], logger=logger)
 
     if grid.REV not in versions:
         msg = 'The PSSe version is not compatible. Compatible versions are:'
@@ -265,7 +285,7 @@ def read_raw(filename, text_func=None, progress_func=None, logger=Logger()) -> P
     # declare contents:
     # section_idx, objects_list, expected_data_length, ObjectT, lines per objects
 
-    # SEQUENCE ORDER:
+    # SEQUENCE ORDER:logger.add_warning("RAW header contains 3 elements instead of the expected 6")
     # 0:  Case Identification Data
     # 1:  Bus Data
     # 2:  Load Data
@@ -336,7 +356,7 @@ def read_raw(filename, text_func=None, progress_func=None, logger=Logger()) -> P
                 while l_count < len(lines):
 
                     # lines_per_object2 = lines_per_object
-                    data = list()
+                    data: List[List[float | int | str]] = list()
                     if key == 'transformer':
                         # as you know the PSS/e raw format is nuts, that is why for v29 (onwards probably)
                         # the transformers may have 4 or 5 lines to define them
@@ -364,8 +384,8 @@ def read_raw(filename, text_func=None, progress_func=None, logger=Logger()) -> P
                                 l_count += 1
 
                     elif key == 'impedance correction' and version >= 35:
-                        # since PSSe is nothing but a very questionable set of legacy sofwtare,
-                        # when we're dealing with impedance tables, the number of lines is unkown
+                        # since PSSe is nothing but a very questionable set of legacy software,
+                        # when we're dealing with impedance tables, the number of lines is unknown
                         # and determined by the termination criteria 0.0, 0.0, 0.0
                         done = False
                         while not done:
@@ -389,8 +409,9 @@ def read_raw(filename, text_func=None, progress_func=None, logger=Logger()) -> P
                     # data = [interpret_line(object_lines[k]) for k in range(lines_per_object)]
 
                     # pass the data to the according object to assign it to the matching variables
+                    data2 = format_lines(data1=data, logger=logger)
                     obj = ObjectT()
-                    obj.parse(data, version, logger)
+                    obj.parse(data2, version, logger)
                     objects_list.append(obj)
 
                     if progress_func is not None:

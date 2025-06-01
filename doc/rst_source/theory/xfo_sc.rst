@@ -8,43 +8,98 @@ the transformer to match the branch model, it is advised to transform the specif
 into the desired values. The values to take from the specs sheet are:
 
 - :math:`S_n`: Nominal power in MVA.
-- :math:`U_{hv}`: Voltage at the high-voltage side in kV.
-- :math:`U_{lv}`: Voltage at the low-voltage side in kV.
-- :math:`U_{sc}`: Short circuit voltage in %.
+- :math:`HV`: Voltage at the high-voltage side in kV.
+- :math:`LV`: Voltage at the low-voltage side in kV.
+- :math:`V_{hv\_bus}`: Nominal voltage of the high-voltage side bus kV.
+- :math:`V_{lv\_bus}`: Nominal voltage of the low-voltage side bus kV.
+- :math:`V_{sc}`: Short circuit voltage in %.
 - :math:`P_{cu}`: Copper losses in kW.
 - :math:`I_0`: No load current in %.
-- :math:`GX_{hv1}`: Reactance contribution to the HV side. Value from 0 to 1.
-- :math:`GR_{hv1}`: Resistance contribution to the HV side. Value from 0 to 1.
+- :math:`Share_{hv1}`: Contribution to the HV side. Value from 0 to 1.
 
-Then, the series and shunt impedances are computed as follows:
 
-- Nominal impedance HV (Ohm): :math:`Zn_{hv} = U_{hv}^2 / S_n`
-- Nominal impedance LV (Ohm): :math:`Zn_{lv} = U_{lv}^2 / S_n`
-- Short circuit impedance (p.u.): :math:`z_{sc} = U_{sc} / 100`
-- Short circuit resistance (p.u.): :math:`r_{sc} = \frac{P_{cu} / 1000}{S_n}`
-- Short circuit reactance (p.u.): :math:`x_{sc} = \sqrt{z_{sc}^2 - r_{sc} ^2}`
-- HV resistance (p.u.): :math:`r_{cu,hv} = r_{sc} \cdot GR_{hv1}`
-- LV resistance (p.u.): :math:`r_{cu,lv} = r_{sc} \cdot (1 - GR_{hv1})`
-- HV shunt reactance (p.u.): :math:`xs_{hv} = x_{sc} \cdot GX_{hv1}`
-- LV shunt reactance (p.u.): :math:`xs_{lv} = x_{sc} \cdot (1 - GX_{hv1})`
+Short circuit impedance (p.u. of the machine)
 
-If :math:`P_{fe} > 0` and :math:`I0 > 0`, then:
+.. math::
 
-- Shunt resistance (p.u.): :math:`r_{fe} = \frac{Sn}{P_{fe} / 1000}`
-- Magnetization impedance (p.u.): :math:`z_m = \frac{1}{I_0 / 100}`
-- Magnetization reactance (p.u.): :math:`x_m = \frac{1}{\sqrt{\frac{1}{z_m^2} - \frac{1}{r_{fe}^2}}}`
-- Magnetizing resistance (p.u.): :math:`r_m = \sqrt{x_m^2 - z_m^2}`
+    z_{sc} = \frac{V_{sc}}{100}
 
-else:
+Short circuit resistance (p.u. of the machine)
 
-- Magnetization reactance (p.u.): :math:`x_m = 0`
-- Magnetizing resistance (p.u.): :math:`r_m = 0`
+.. math::
 
-The final complex calculated parameters in per unit are:
+    r_{sc} = \frac{P_{cu} / 1000}{ S_n }
 
-- Magnetizing impedance (or series impedance): :math:`z_{series} = Z_m = r_{m} +j \cdot x_m`
-- Leakage impedance (or shunt impedance): :math:`Z_l = r_{sc} + j \cdot x_{sc}`
-- Shunt admittance: :math:`y_{shunt} = 1 / Z_l`
+
+Short circuit reactance (p.u. of the machine)
+Can only be computed if :math:`r_{sc} < z_{sc}`
+
+.. math::
+
+    x_{sc} = \sqrt{z_{sc}^2 - r_{sc}^2}
+
+Series impedance (p.u. of the machine)
+
+.. math::
+
+    z_s = r_{sc} + j \cdot x_{sc}
+
+
+The issue with tis is that we now must convert :math:`zs` from machine base to the system base.
+
+First we compute the High voltage side:
+
+.. math::
+
+    z_{base}^{HV} = \frac{HV^2}{S_n}
+
+    z_{base}^{hv\_bus} = \frac{V_{hv\_bus}^2}{S_{base}}
+
+    z_{s\_HV}^{system}  = z_s\cdot  \frac{z_{base}^{HV}}{z_{base}^{hv\_bus}} \cdot Share_{hv1}  = z_s \cdot  \frac{HV^2 \cdot S_{base}}{V_{hv\_bus}^2 \cdot S_n}  \cdot Share_{hv1}
+
+
+Now, we compute the Low voltage side:
+
+.. math::
+
+    z_{base}^{LV} = \frac{LV^2}{S_n}
+
+    z_{base}^{lv\_bus} = \frac{V_{lv\_bus}^2}{S_{base}}
+
+    z_{s\_LV}^{system} = z_s \cdot \frac{z_{base}^{LV}}{z_{base}^{lv\_bus}}  \cdot (1 - Share_{hv1})  = z_s \cdot  \frac{LV^2 \cdot S_{base}}{V_{lv\_bus}^2 \cdot S_n}  \cdot (1 - Share_{hv1})
+
+
+
+Finally, the system series impedance in p.u. is:
+
+.. math::
+
+    z_s = z_{s\_HV}^{system} + z_{s\_LV}^{system}
+
+
+Now, the leakage impedance (shunt of the model)
+
+.. math::
+
+    r_m = \frac{S_{base}}{P_{fe} / 1000}
+
+
+.. math::
+
+    z_m = \frac{100 \cdot S_{base}}{I0 \cdot S_n}
+
+
+.. math::
+
+    x_m = \sqrt{\frac{ - r_m^2 \cdot z_m^2}{z_m^2 - r_m^2}}
+
+
+Finally the shunt admittance is (p.u. of the system):
+
+.. math::
+
+    y_{shunt} = \frac{1}{r_m} + j \cdot \frac{1}{x_m}
+
 
 Inverse definition of SC values from π model
 --------------------------------------------

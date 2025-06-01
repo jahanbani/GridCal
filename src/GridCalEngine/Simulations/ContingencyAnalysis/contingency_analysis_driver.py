@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import numpy as np
 from typing import Union, List
+
+from GridCalEngine.Compilers.circuit_to_gslv import gslv_contingencies
 from GridCalEngine.Devices.multi_circuit import MultiCircuit
 from GridCalEngine.enumerations import EngineType, ContingencyMethod, SimulationTypes
 from GridCalEngine.Simulations.ContingencyAnalysis.contingency_analysis_results import ContingencyAnalysisResults
@@ -71,9 +73,9 @@ class ContingencyAnalysisDriver(DriverTemplate):
         self.results = ContingencyAnalysisResults(
             ncon=self.grid.get_contingency_groups_number(),
             nbus=self.grid.get_bus_number(),
-            nbr=self.grid.get_branch_number_wo_hvdc(),
+            nbr=self.grid.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True),
             bus_names=self.grid.get_bus_names(),
-            branch_names=self.grid.get_branch_names_wo_hvdc(),
+            branch_names=self.grid.get_branch_names(add_hvdc=False, add_vsc=False, add_switch=True),
             bus_types=np.ones(self.grid.get_bus_number(), dtype=int),
             con_names=np.array(self.grid.get_contingency_group_names())
         )
@@ -87,10 +89,10 @@ class ContingencyAnalysisDriver(DriverTemplate):
         else:
             return list()
 
-    def run_at(self, t: int = None, t_prob: float = 1.0) -> ContingencyAnalysisResults:
+    def run_at(self, t_idx: int = None, t_prob: float = 1.0) -> ContingencyAnalysisResults:
         """
         Run the contingency at a time point
-        :param t: index for any time series index, None for the snapshot
+        :param t_idx: index for any time series index, None for the snapshot
         :param t_prob: probability of te time
         :return: ContingencyAnalysisResults
         """
@@ -114,7 +116,7 @@ class ContingencyAnalysisDriver(DriverTemplate):
                     options=self.options,
                     linear_multiple_contingencies=self.linear_multiple_contingencies,
                     calling_class=self,
-                    t=t,
+                    t_idx=t_idx,
                     t_prob=t_prob,
                     logger=self.logger
                 )
@@ -125,7 +127,7 @@ class ContingencyAnalysisDriver(DriverTemplate):
                     options=self.options,
                     linear_multiple_contingencies=self.linear_multiple_contingencies,
                     calling_class=self,
-                    t=t,
+                    t=t_idx,
                     t_prob=t_prob,
                     logger=self.logger
                 )
@@ -135,7 +137,7 @@ class ContingencyAnalysisDriver(DriverTemplate):
                     grid=self.grid,
                     options=self.options,
                     calling_class=self,
-                    t=t,
+                    t=t_idx,
                     t_prob=t_prob
                 )
             elif self.options.contingency_method == ContingencyMethod.OptimalPowerFlow:
@@ -145,7 +147,7 @@ class ContingencyAnalysisDriver(DriverTemplate):
                     opf_options=None,  # TODO: finalize this
                     linear_multiple_contingencies=self.linear_multiple_contingencies,
                     calling_class=self,
-                    t=t,
+                    t=t_idx,
                     t_prob=t_prob,
                     logger=self.logger
                 )
@@ -163,6 +165,28 @@ class ContingencyAnalysisDriver(DriverTemplate):
             self.results = translate_newton_pa_contingencies(grid=self.grid,
                                                              con_res=con_res)
 
+        elif self.engine == EngineType.GSLV:
+
+            self.report_text("Running contingencies in gslv...")
+            con_res = gslv_contingencies(circuit=self.grid,
+                                         con_opt=self.options,
+                                         time_series=False,
+                                         time_indices=None)
+
+            self.results = ContingencyAnalysisResults(
+                ncon=self.grid.get_contingency_groups_number(),
+                nbus=self.grid.get_bus_number(),
+                nbr=self.grid.get_branch_number(add_hvdc=False, add_vsc=False, add_switch=True),
+                bus_names=self.grid.get_bus_names(),
+                branch_names=self.grid.get_branch_names(add_hvdc=False, add_vsc=False, add_switch=True),
+                bus_types=np.ones(self.grid.get_bus_number(), dtype=int),
+                con_names=np.array(self.grid.get_contingency_group_names())
+            )
+
+            # results.S[t, :] = res_t.S.real.max(axis=0)
+            self.results.max_flows = con_res.max_values.Sf[0, :]
+            self.results.max_loading = con_res.max_values.loading[0, :]
+
         return self.results
 
     def run(self) -> None:
@@ -171,5 +195,5 @@ class ContingencyAnalysisDriver(DriverTemplate):
         :return:
         """
         self.tic()
-        self.run_at(t=None)
+        self.run_at(t_idx=None)
         self.toc()

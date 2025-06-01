@@ -11,19 +11,20 @@ import numpy.typing as npt
 import datetime
 from scipy.sparse import csc_matrix, csr_matrix
 from GridCalEngine.enumerations import TimeGrouping, LogSeverity
+import copy
 
 IntList = List[int]
 Numeric = Union[int, float, bool, complex]
 
 NumericVec = npt.NDArray[np.float64]
-DateVec = npt.NDArray[np.datetime64]
+DateVec = pd.DatetimeIndex
 IntVec = npt.NDArray[np.int_]
 BoolVec = npt.NDArray[np.bool_]
 Vec = npt.NDArray[np.float64]
 CxVec = npt.NDArray[np.complex128]
 StrVec = npt.NDArray[np.str_]
 ObjVec = npt.NDArray[np.object_]
-Mat = npt.NDArray[np.float64]  # no way yet to say it is 2D
+Mat = npt.NDArray[np.float64] | np.ndarray[tuple[int, int], np.dtype[np.float64]] # no way yet to say it is 2D
 CxMat = npt.NDArray[np.complex128]  # no way yet to say it is 2D
 IntMat = npt.NDArray[np.int_]  # no way yet to say it is 2D
 StrMat = npt.NDArray[np.str_]  # no way yet to say it is 2D
@@ -908,3 +909,6 @@ class ListSet(list):
         """Return a shallow copy of the ListSet."""
         return ListSet(self)
 
+    def __deepcopy__(self, memo):
+        copied_list = ListSet(copy.deepcopy(list(self), memo))
+        return copied_list

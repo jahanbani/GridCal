@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import List, Tuple, Dict, Union
+from enum import Enum
 import numba as nb
 import numpy as np
 import pandas as pd
@@ -102,8 +103,8 @@ def build_reducible_branches_C_coo(F: IntVec, T: IntVec, reducible: IntVec, acti
 
 @nb.njit(cache=True)
 def build_branches_C_coo_2(bus_active: IntVec,
-                           F1: IntVec, T1: IntVec, active1: IntVec,
-                           F2: IntVec, T2: IntVec, active2: IntVec):
+                           F1: IntVec, T1: IntVec, active1: BoolVec,
+                           F2: IntVec, T2: IntVec, active2: BoolVec):
     """
     Build the COO coordinates of the C matrix
     :param bus_active: array of bus active values
@@ -133,6 +134,7 @@ def build_branches_C_coo_2(bus_active: IntVec,
     data = np.empty(nelm * 2, dtype=np.int64)
 
     ii = 0
+    br_count = 0
 
     for k in range(len(F1)):
         if active1[k]:
@@ -140,16 +142,17 @@ def build_branches_C_coo_2(bus_active: IntVec,
             t = T1[k]
             if bus_active[f] and bus_active[t]:
                 # C[k, f] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = f
                 data[ii] = 1
                 ii += 1
 
                 # C[k, t] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = t
                 data[ii] = 1
                 ii += 1
+        br_count += 1
 
     for k in range(len(F2)):
         if active2[k]:
@@ -157,25 +160,26 @@ def build_branches_C_coo_2(bus_active: IntVec,
             t = T2[k]
             if bus_active[f] and bus_active[t]:
                 # C[k, f] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = f
                 data[ii] = 1
                 ii += 1
 
                 # C[k, t] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = t
                 data[ii] = 1
                 ii += 1
+        br_count += 1
 
     return i[:ii], j[:ii], data[:ii], nelm
 
 
 @nb.njit(cache=True)
 def build_branches_C_coo_3(bus_active: IntVec,
-                           F1: IntVec, T1: IntVec, active1: IntVec,
-                           F2: IntVec, T2: IntVec, active2: IntVec,
-                           F3: IntVec, T3: IntVec, active3: IntVec):
+                           F1: IntVec, T1: IntVec, active1: BoolVec,
+                           F2: IntVec, T2: IntVec, active2: BoolVec,
+                           F3: IntVec, T3: IntVec, active3: BoolVec):
     """
     Build the COO coordinates of the C matrix
     :param bus_active: array of bus active values
@@ -208,6 +212,7 @@ def build_branches_C_coo_3(bus_active: IntVec,
     data = np.empty(nelm * 2, dtype=np.int64)
 
     ii = 0
+    br_count = 0
 
     for k in range(len(F1)):
         if active1[k]:
@@ -215,16 +220,17 @@ def build_branches_C_coo_3(bus_active: IntVec,
             t = T1[k]
             if bus_active[f] and bus_active[t]:
                 # C[k, f] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = f
                 data[ii] = 1
                 ii += 1
 
                 # C[k, t] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = t
                 data[ii] = 1
                 ii += 1
+        br_count += 1
 
     for k in range(len(F2)):
         if active2[k]:
@@ -232,16 +238,17 @@ def build_branches_C_coo_3(bus_active: IntVec,
             t = T2[k]
             if bus_active[f] and bus_active[t]:
                 # C[k, f] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = f
                 data[ii] = 1
                 ii += 1
 
                 # C[k, t] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = t
                 data[ii] = 1
                 ii += 1
+        br_count += 1
 
     for k in range(len(F3)):
         if active3[k]:
@@ -249,16 +256,17 @@ def build_branches_C_coo_3(bus_active: IntVec,
             t = T3[k]
             if bus_active[f] and bus_active[t]:
                 # C[k, f] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = f
                 data[ii] = 1
                 ii += 1
 
                 # C[k, t] = 1
-                i[ii] = k
+                i[ii] = br_count
                 j[ii] = t
                 data[ii] = 1
                 ii += 1
+        br_count += 1
 
     return i[:ii], j[:ii], data[:ii], nelm
 
@@ -304,6 +312,18 @@ def check_arr(arr: Vec | IntVec | BoolVec | CxVec,
         return 1
 
 
+class DataStructType(Enum):
+    BUSDATA = 1
+    BRANCHDATA = 2
+    HVDCDATA = 3
+    GENERATORDATA = 4
+    BATTERYDATA = 5
+    LOADDATA = 6
+    SHUNTDATA = 7
+    VSCDATA = 8
+    NOSTRUCT = 0
+
+
 class NumericalCircuit:
     """
     Class storing the calculation information of the devices
@@ -334,16 +354,7 @@ class NumericalCircuit:
             'Pt_set',
             'Qt_set',
         ],
-        "Branch indices": [
-            'branch_ctrl',
-            'k_pf_tau',
-            'k_pt_tau',
-            'k_qf_m',
-            'k_qt_m',
-            'k_qf_beq',
-            'k_v_m',
-            'k_v_beq',
-        ],
+
         "System matrices": [
             'Ybus',
             'G',
@@ -448,6 +459,11 @@ class NumericalCircuit:
 
         self.__topology_performed = False
 
+        # map to relate the elements idtag to their structures
+        # used during contingency analysis to modify the structures active, etc...
+        # based on the device idtag
+        self.structs_idtag_dict: Dict[str, Tuple[DataStructType, int]] = dict()
+
     def propagate_bus_result(self, bus_magnitude: Vec | CxVec):
         """
         This function applies the __bus_map_arr to a calculated magnitude to
@@ -473,7 +489,6 @@ class NumericalCircuit:
         :return:
         """
         return self.__topology_performed
-
 
     def get_reduction_bus_mapping(self) -> IntVec:
         """
@@ -541,13 +556,6 @@ class NumericalCircuit:
         self.nbatt = len(self.battery_data)
         self.nshunt = len(self.shunt_data)
 
-        # self.bus_data.installed_power = self.generator_data.get_installed_power_per_bus()
-        # self.bus_data.installed_power += self.battery_data.get_installed_power_per_bus()
-
-        if self.active_branch_data.any_pf_control is False:
-            if self.vsc_data.nelm > 0:
-                self.active_branch_data.any_pf_control = True
-
     def copy(self) -> "NumericalCircuit":
         """
         Deep copy of ths object
@@ -581,41 +589,54 @@ class NumericalCircuit:
         nc.fluid_pump_data = self.fluid_pump_data.copy()
         nc.fluid_p2x_data = self.fluid_p2x_data.copy()
         nc.fluid_path_data = self.fluid_path_data.copy()
+        nc.structs_idtag_dict = self.structs_idtag_dict.copy()
         nc.consolidate_information()
 
         return nc
 
-    def get_structures_list(self) -> List[ALL_STRUCTS]:
+    def init_idtags_dict(self):
         """
-        Get a list of the structures inside the NumericalCircuit
+        Initialize the internal structure for idtags querying
         :return:
         """
-        return [self.bus_data,
-                self.generator_data,
-                self.battery_data,
-                self.load_data,
-                self.shunt_data,
-                self.passive_branch_data,
-                self.hvdc_data,
-                self.fluid_node_data,
-                self.fluid_turbine_data,
-                self.fluid_pump_data,
-                self.fluid_p2x_data,
-                self.fluid_path_data]
+        self.structs_idtag_dict.clear()
 
-    def get_structs_idtag_dict(self) -> Dict[str, Tuple[ALL_STRUCTS, int]]:
+        for i, idtag in enumerate(self.passive_branch_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.BRANCHDATA, i)
+
+        for i, idtag in enumerate(self.generator_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.GENERATORDATA, i)
+
+        for i, idtag in enumerate(self.hvdc_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.HVDCDATA, i)
+
+        for i, idtag in enumerate(self.battery_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.BATTERYDATA, i)
+
+        for i, idtag in enumerate(self.shunt_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.SHUNTDATA, i)
+
+        for i, idtag in enumerate(self.load_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.LOADDATA, i)
+
+        for i, idtag in enumerate(self.vsc_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.VSCDATA, i)
+
+        for i, idtag in enumerate(self.bus_data.idtag):
+            self.structs_idtag_dict[str(idtag)] = (DataStructType.BUSDATA, i)
+
+    def query_idtag(self, idtag: str) -> Tuple[DataStructType, int]:
         """
-        Get a dictionary to map idtags to the structure they belong and the index
-        :return: Dictionary relating an idtag to the structure and the index in it (Dict[idtag] -> (structure, index))
+        Query the structure and index where an idtag exists
+        :param idtag: idtag
+        :return: DataStructType, integer position
         """
-        structs_dict: Dict[str, Tuple[ALL_STRUCTS, int]] = dict()
+        # lazy initialization in case we forgot...
+        if len(self.structs_idtag_dict) == 0:
+            if self.bus_data.nbus > 0 or self.passive_branch_data.nelm > 0:
+                self.init_idtags_dict()
 
-        for struct_elm in self.get_structures_list():
-
-            for i, idtag in enumerate(struct_elm.idtag):
-                structs_dict[idtag] = (struct_elm, i)
-
-        return structs_dict
+        return self.structs_idtag_dict.get(idtag, (DataStructType.NOSTRUCT, 0))
 
     def set_investments_status(self, investments_list: List[Investment], status: int) -> None:
         """
@@ -623,118 +644,218 @@ class NumericalCircuit:
         :param investments_list: list of investments
         :param status: status to set in the internal structures
         """
-        structs_dict = self.get_structs_idtag_dict()
 
         for inv in investments_list:
 
-            # search the investment device
-            structure, idx = structs_dict.get(inv.device_idtag, (None, 0))
+            structure, idx = self.query_idtag(inv.device_idtag)
 
-            if structure is not None:
-                structure.active[idx] = status
-            else:
+            if structure == DataStructType.NOSTRUCT:
                 raise Exception('Could not find the idtag, is this a programming bug?')
+
+            elif structure == DataStructType.BRANCHDATA:
+                self.passive_branch_data.active[idx] = status
+
+            elif structure == DataStructType.GENERATORDATA:
+                self.generator_data.active[idx] = status
+
+            elif structure == DataStructType.HVDCDATA:
+                self.hvdc_data.active[idx] = status
+
+            elif structure == DataStructType.BUSDATA:
+                self.bus_data.active[idx] = status
+
+            elif structure == DataStructType.BATTERYDATA:
+                self.battery_data.active[idx] = status
+
+            elif structure == DataStructType.LOADDATA:
+                self.load_data.active[idx] = status
+
+            elif structure == DataStructType.SHUNTDATA:
+                self.shunt_data.active[idx] = status
+
+            elif structure == DataStructType.VSCDATA:
+                self.vsc_data.active[idx] = status
 
     def set_con_or_ra_status(self,
                              event_list: List[Contingency | RemedialAction],
-                             revert: bool = False):
+                             revert: bool = False) -> Vec:
         """
         Set the status of a list of contingencies or remedial actions
         :param event_list: list of contingencies and or remedial actions
         :param revert: if false, the contingencies are applied, else they are reversed
+        :return: vector of power injection increments
         """
 
-        structs_dict = self.get_structs_idtag_dict()
+        # vector of power injection increments
+        inj_increment = np.zeros(self.nbus)
 
         # apply the contingencies
         for cnt in event_list:
 
-            if isinstance(cnt, (Contingency, RemedialAction)):
+            structure, idx = self.query_idtag(cnt.device_idtag)
 
-                # search the investment device
-                structure, idx = structs_dict.get(cnt.device_idtag, (None, 0))
+            if structure == DataStructType.NOSTRUCT:
+                raise Exception('Could not find the idtag, is this a programming bug?')
 
-                if structure is not None:
-                    if cnt.prop == ContingencyOperationTypes.Active:
-                        if revert:
-                            structure.active[idx] = int(not bool(cnt.value))
-                        else:
-                            structure.active[idx] = int(cnt.value)
-                    elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
-                        if revert:
-                            structure.p[idx] /= float(cnt.value / 100.0)
-                        else:
-                            structure.p[idx] *= float(cnt.value / 100.0)
+            elif structure == DataStructType.BRANCHDATA:
+
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.passive_branch_data.active[idx] = int(not bool(cnt.value))
                     else:
-                        print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+                        self.passive_branch_data.active[idx] = int(cnt.value)
                 else:
-                    print(f'contingency device not found {cnt.name} {cnt.idtag}')
-            else:
-                raise Exception(f"The object {cnt} is not a Contingency or a remedial action")
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
 
-    def set_linear_con_or_ra_status(self,
-                                    event_list: List[Contingency | RemedialAction],
-                                    revert: bool = False):
-        """
-        Set the status of a list of contingencies or remedial actions
-        :param event_list: list of contingencies and or remedial actions
-        :param revert: if false, the contingencies are applied, else they are reversed
-        """
-        structs_dict = self.get_structs_idtag_dict()
+            elif structure == DataStructType.GENERATORDATA:
 
-        injections = np.zeros(self.nbus)
-        # apply the contingencies
-        for cnt in event_list:
-
-            if isinstance(cnt, (Contingency, RemedialAction)):
-
-                # search the investment device
-                structure, idx = structs_dict.get(cnt.device_idtag, (None, 0))
-
-                if structure is not None:
-                    if cnt.prop == ContingencyOperationTypes.Active:
-                        if revert:
-                            structure.active[idx] = int(not bool(cnt.value))
-                        else:
-                            structure.active[idx] = int(cnt.value)
-
-                    elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
-                        # TODO Cambiar el acceso a P por una función (o función que incremente- decremente porcentaje)
-                        assert not isinstance(structure, HvdcData)  # TODO Arreglar esto
-                        dev_injections = np.zeros(structure.size())
-                        dev_injections[idx] -= structure.p[idx]
-                        if revert:
-                            structure.p[idx] /= float(cnt.value / 100.0)
-                        else:
-                            structure.p[idx] *= float(cnt.value / 100.0)
-                        dev_injections[idx] += structure.p[idx]
-                        injections += structure.get_array_per_bus(dev_injections)
-
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.generator_data.active[idx] = int(not bool(cnt.value))
                     else:
-                        print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+                        self.generator_data.active[idx] = int(cnt.value)
+
+                elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
+
+                    inj_increment[self.generator_data.bus_idx[idx]] -= self.generator_data.p[idx]
+
+                    if revert:
+                        self.generator_data.p[idx] /= float(cnt.value / 100.0)
+                    else:
+                        self.generator_data.p[idx] *= float(cnt.value / 100.0)
+
+                    inj_increment[self.generator_data.bus_idx[idx]] += self.generator_data.p[idx]
                 else:
-                    print(f'contingency device not found {cnt.name} {cnt.idtag}')
-            else:
-                raise Exception(f"The object {cnt} is not a Contingency or a remedial action")
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
 
-        return injections
+            elif structure == DataStructType.HVDCDATA:
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.hvdc_data.active[idx] = int(not bool(cnt.value))
+                    else:
+                        self.hvdc_data.active[idx] = int(cnt.value)
 
-    def get_simulation_indices(self, Sbus: CxVec | None = None) -> si.SimulationIndices:
+                elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
+
+                    inj_increment[self.hvdc_data.F[idx]] += self.hvdc_data.Pset[idx]
+                    inj_increment[self.hvdc_data.T[idx]] -= self.hvdc_data.Pset[idx]
+
+                    if revert:
+                        self.hvdc_data.Pset[idx] /= float(cnt.value / 100.0)
+                    else:
+                        self.hvdc_data.Pset[idx] *= float(cnt.value / 100.0)
+
+                    inj_increment[self.hvdc_data.F[idx]] -= self.hvdc_data.Pset[idx]
+                    inj_increment[self.hvdc_data.T[idx]] += self.hvdc_data.Pset[idx]
+                else:
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+            elif structure == DataStructType.BUSDATA:
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.bus_data.active[idx] = int(not bool(cnt.value))
+                    else:
+                        self.bus_data.active[idx] = int(cnt.value)
+                else:
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+            elif structure == DataStructType.BATTERYDATA:
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.battery_data.active[idx] = int(not bool(cnt.value))
+                    else:
+                        self.battery_data.active[idx] = int(cnt.value)
+
+                elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
+
+                    inj_increment[self.battery_data.bus_idx[idx]] -= self.battery_data.p[idx]
+
+                    if revert:
+                        self.battery_data.p[idx] /= float(cnt.value / 100.0)
+                    else:
+                        self.battery_data.p[idx] *= float(cnt.value / 100.0)
+
+                    inj_increment[self.battery_data.bus_idx[idx]] += self.battery_data.p[idx]
+                else:
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+            elif structure == DataStructType.LOADDATA:
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.load_data.active[idx] = int(not bool(cnt.value))
+                    else:
+                        self.load_data.active[idx] = int(cnt.value)
+
+                elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
+
+                    inj_increment[self.load_data.bus_idx[idx]] -= self.load_data.S[idx].real
+
+                    if revert:
+                        self.load_data.S[idx] /= float(cnt.value / 100.0)
+                    else:
+                        self.load_data.S[idx] *= float(cnt.value / 100.0)
+
+                    inj_increment[self.load_data.bus_idx[idx]] += self.load_data.S[idx].real
+                else:
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+            elif structure == DataStructType.SHUNTDATA:
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.shunt_data.active[idx] = int(not bool(cnt.value))
+                    else:
+                        self.shunt_data.active[idx] = int(cnt.value)
+
+                elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
+
+                    inj_increment[self.shunt_data.bus_idx[idx]] -= self.shunt_data.Y[idx].real
+
+                    if revert:
+                        self.shunt_data.Y[idx] /= float(cnt.value / 100.0)
+                    else:
+                        self.shunt_data.Y[idx] *= float(cnt.value / 100.0)
+
+                    inj_increment[self.shunt_data.bus_idx[idx]] += self.shunt_data.Y[idx].real
+                else:
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+            elif structure == DataStructType.VSCDATA:
+                if cnt.prop == ContingencyOperationTypes.Active:
+                    if revert:
+                        self.vsc_data.active[idx] = int(not bool(cnt.value))
+                    else:
+                        self.vsc_data.active[idx] = int(cnt.value)
+                else:
+                    print(f'Unknown contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+        return inj_increment
+
+    def get_simulation_indices(self, Sbus: CxVec | None = None,
+                               bus_types: IntVec | None = None,
+                               force_only_pq_pv_vd_types=False) -> si.SimulationIndices:
         """
         Get the simulation indices
+        :param Sbus: Array of bus powers (optional)
+        :param bus_types: different array of bus_types (optional)
+        :param force_only_pq_pv_vd_types: if true, all bus types are forced into PQ PV or VD,
+                                          for certain types of simulations that cannot handle other bus types
         :return: SimulationIndices
         """
         if Sbus is None:
             Sbus = self.get_power_injections_pu()
-        return si.SimulationIndices(bus_types=self.bus_data.bus_types,
+
+        if bus_types is None:
+            bus_types = self.bus_data.bus_types
+
+        return si.SimulationIndices(bus_types=bus_types,
                                     Pbus=Sbus.real,
                                     tap_module_control_mode=self.active_branch_data.tap_module_control_mode,
                                     tap_phase_control_mode=self.active_branch_data.tap_phase_control_mode,
                                     tap_controlled_buses=self.active_branch_data.tap_controlled_buses,
-                                    is_converter=np.zeros(self.nbr, dtype=bool),
                                     F=self.passive_branch_data.F,
                                     T=self.passive_branch_data.T,
-                                    is_dc_bus=self.bus_data.is_dc)
+                                    is_dc_bus=self.bus_data.is_dc,
+                                    force_only_pq_pv_vd_types=force_only_pq_pv_vd_types)
 
     def get_connectivity_matrices(self) -> tp.ConnectivityMatrices:
         """
@@ -1013,9 +1134,9 @@ class NumericalCircuit:
             )
 
         elif structure_type == 'Yseries':
-            adm = self.get_admittance_matrices()
+            adms = self.get_series_admittance_matrices()
             df = pd.DataFrame(
-                data=adm.Yseries.toarray(),
+                data=adms.Yseries.toarray(),
                 columns=self.bus_data.names,
                 index=self.bus_data.names,
             )
@@ -1171,53 +1292,7 @@ class NumericalCircuit:
                 index=self.passive_branch_data.names,
             )
 
-        elif structure_type == 'k_pf_tau':
-            df = pd.DataFrame(
-                data=idx.k_pf_tau.astype(int).astype(str),
-                columns=['k_pf_tau'],
-                index=self.passive_branch_data.names[idx.k_pf_tau],
-            )
 
-        elif structure_type == 'k_pt_tau':
-            df = pd.DataFrame(
-                data=idx.k_pt_tau.astype(int).astype(str),
-                columns=['k_pt_tau'],
-                index=self.passive_branch_data.names[idx.k_pt_tau],
-            )
-
-        elif structure_type == 'k_qf_m':
-            df = pd.DataFrame(
-                data=idx.k_qf_m.astype(int).astype(str),
-                columns=['k_qf_m'],
-                index=self.passive_branch_data.names[idx.k_qf_m],
-            )
-
-        elif structure_type == 'k_qt_m':
-            df = pd.DataFrame(
-                data=idx.k_qt_m.astype(int).astype(str),
-                columns=['k_qt_m'],
-                index=self.passive_branch_data.names[idx.k_qt_m],
-            )
-
-        elif structure_type == 'k_qf_beq':
-            df = pd.DataFrame(
-                data=idx.k_qf_beq.astype(int).astype(str),
-                columns=['k_qf_beq'],
-                index=self.passive_branch_data.names[idx.k_qf_beq],
-            )
-
-        elif structure_type == 'k_v_m':
-            df = pd.DataFrame(
-                data=idx.k_v_m.astype(int).astype(str),
-                columns=['k_v_m'],
-                index=self.passive_branch_data.names[idx.k_v_m],
-            )
-        elif structure_type == 'k_v_beq':
-            df = pd.DataFrame(
-                data=idx.k_v_beq.astype(int).astype(str),
-                columns=['k_v_beq'],
-                index=self.passive_branch_data.names[idx.k_v_beq],
-            )
         elif structure_type == 'idx_dPf':
             df = pd.DataFrame(
                 data=formulation.idx_dPf.astype(int).astype(str),
@@ -1384,14 +1459,10 @@ class NumericalCircuit:
 
     def get_island(self,
                    bus_idx: IntVec,
-                   consider_hvdc_as_island_links: bool = False,
-                   consider_vsc_as_island_links: bool = True,
                    logger: Logger | None = None) -> "NumericalCircuit":
         """
         Get the island corresponding to the given buses
         :param bus_idx: array of bus indices
-        :param consider_hvdc_as_island_links: Does the HVDCLine works for the topology as a normal line?
-        :param consider_vsc_as_island_links: Consider the VSC devices as a regular branch?
         :param logger: Logger
         :return: NumericalCircuit
         """
@@ -1458,18 +1529,15 @@ class NumericalCircuit:
         nc.passive_branch_data = self.passive_branch_data.slice(elm_idx=br_idx, bus_idx=bus_idx,
                                                                 bus_map=bus_map, logger=logger)
 
-        nc.active_branch_data = self.active_branch_data.slice(elm_idx=br_idx, bus_idx=bus_idx)
+        nc.active_branch_data = self.active_branch_data.slice(elm_idx=br_idx, bus_idx=bus_idx,
+                                                              bus_map=bus_map, logger=logger)
 
         nc.load_data = self.load_data.slice(elm_idx=load_idx, bus_idx=bus_idx, bus_map=bus_map)
         nc.battery_data = self.battery_data.slice(elm_idx=batt_idx, bus_idx=bus_idx, bus_map=bus_map)
         nc.generator_data = self.generator_data.slice(elm_idx=gen_idx, bus_idx=bus_idx, bus_map=bus_map)
         nc.shunt_data = self.shunt_data.slice(elm_idx=shunt_idx, bus_idx=bus_idx, bus_map=bus_map)
-
-        if consider_hvdc_as_island_links:
-            nc.hvdc_data = self.hvdc_data.slice(elm_idx=hvdc_idx, bus_idx=bus_idx, bus_map=bus_map, logger=logger)
-
-        if consider_vsc_as_island_links:
-            nc.vsc_data = self.vsc_data.slice(elm_idx=vsc_idx, bus_idx=bus_idx, bus_map=bus_map, logger=logger)
+        nc.vsc_data = self.vsc_data.slice(elm_idx=vsc_idx, bus_idx=bus_idx, bus_map=bus_map, logger=logger)
+        nc.hvdc_data = self.hvdc_data.slice(elm_idx=hvdc_idx, bus_idx=bus_idx, bus_map=bus_map, logger=logger)
 
         return nc
 
@@ -1500,14 +1568,10 @@ class NumericalCircuit:
         for island_bus_indices in idx_islands:
             if ignore_single_node_islands:
                 if len(island_bus_indices) > 1:
-                    island = self.get_island(island_bus_indices,
-                                             consider_hvdc_as_island_links=consider_hvdc_as_island_links,
-                                             logger=logger)
+                    island = self.get_island(bus_idx=island_bus_indices, logger=logger)
                     circuit_islands.append(island)
             else:
-                island = self.get_island(island_bus_indices,
-                                         consider_hvdc_as_island_links=consider_hvdc_as_island_links,
-                                         logger=logger)
+                island = self.get_island(bus_idx=island_bus_indices, logger=logger)
                 circuit_islands.append(island)
 
         return circuit_islands
@@ -1515,8 +1579,8 @@ class NumericalCircuit:
     def compare(self, nc_2: "NumericalCircuit", tol=1e-6) -> Tuple[bool, Logger]:
         """
         Compare this numerical circuit with another numerical circuit
-        :param nc_2: NumericalCircuit
-        :param tol: NumericalCircuit
+        :param nc_2: other NumericalCircuit
+        :param tol: tolerance for numerical values
         :return: Logger with the errors and warning events
         """
 

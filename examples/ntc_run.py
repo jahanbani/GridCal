@@ -32,13 +32,12 @@ a1 = np.where(areas == area_from_idx)[0]
 a2 = np.where(areas == area_to_idx)[0]
 
 linear = LinearAnalysis(
-    numerical_circuit=numerical_circuit_,
+    nc=numerical_circuit_,
     distributed_slack=False,
     correct_values=False
 )
 
 tm0 = time.time()
-linear.run()
 print(f'linear analysis computed in {time.time() - tm0:.2f} scs.')
 
 tm0 = time.time()

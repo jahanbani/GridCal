@@ -38,7 +38,7 @@ from GridCalEngine.IO.gridcal.sqlite_interface import save_data_frames_to_sqlite
 from GridCalEngine.IO.gridcal.h5_interface import save_h5, open_h5
 from GridCalEngine.IO.raw.rawx_parser_writer import parse_rawx, write_rawx
 from GridCalEngine.IO.others.pypsa_parser import parse_pypsa_netcdf, parse_pypsa_hdf5
-from GridCalEngine.IO.others.pandapower_parser import is_pandapower_file, Panda2GridCal
+from GridCalEngine.IO.others.pandapower_parser import Panda2GridCal
 from GridCalEngine.IO.cim.cgmes.cgmes_enums import cgmesProfile
 from GridCalEngine.IO.ucte.devices.ucte_circuit import UcteCircuit
 from GridCalEngine.IO.ucte.ucte_to_gridcal import convert_ucte_to_gridcal
@@ -133,7 +133,7 @@ class FileOpenOptions:
                  cgmes_map_areas_like_raw: bool = False,
                  try_to_map_dc_to_hvdc_line: bool = True,
                  crash_on_errors: bool = True,
-                 adjust_taps_to_discrete_positions: bool = False,):
+                 adjust_taps_to_discrete_positions: bool = False, ):
         """
 
         :param cgmes_map_areas_like_raw: If active the CGMEs mapping will be:
@@ -225,7 +225,8 @@ class FileOpen:
                     looks_like_ucte = False
 
             if looks_like_cgmes:
-                data_parser = CgmesDataParser(text_func=text_func, progress_func=progress_func, logger=self.cgmes_logger)
+                data_parser = CgmesDataParser(text_func=text_func, progress_func=progress_func,
+                                              logger=self.cgmes_logger)
                 data_parser.load_files(files=self.file_name)
                 self.cgmes_circuit = CgmesCircuit(cgmes_version=data_parser.cgmes_version, text_func=text_func,
                                                   cgmes_map_areas_like_raw=self.options.cgmes_map_areas_like_raw,
@@ -416,6 +417,10 @@ class FileOpen:
                         self.circuit = cgmes_to_gridcal(cgmes_model=self.cgmes_circuit,
                                                         map_dc_to_hvdc_line=self.options.try_to_map_dc_to_hvdc_line,
                                                         logger=self.cgmes_logger)
+
+                        if self.cgmes_logger.has_logs():
+                            self.logger += self.cgmes_logger.get_logger()
+
                     else:
                         # try CIM
                         parser = CIMImport(text_func=text_func, progress_func=progress_func)
@@ -431,7 +436,7 @@ class FileOpen:
                 elif file_extension.lower() == '.p':
                     self.circuit = Panda2GridCal(self.file_name, self.logger).get_multicircuit()
 
-                elif file_extension.lower() == '.uct' or file_extension.lower() == '.uct2':
+                elif file_extension.lower() == '.uct' or file_extension.lower() == '.ucte':
                     ucte_grid = UcteCircuit()
                     ucte_grid.parse_file(files=[self.file_name], logger=self.logger)
                     self.circuit = convert_ucte_to_gridcal(ucte_grid=ucte_grid, logger=self.logger)
@@ -554,7 +559,7 @@ class FileSave:
         logger = Logger()
 
         dfs = gather_model_as_data_frames(self.circuit,
-        logger=logger,
+                                          logger=logger,
                                           legacy=False)
 
         model_data = gather_model_as_jsons(self.circuit)
@@ -579,7 +584,7 @@ class FileSave:
 
         logger = Logger()
 
-        dfs = gather_model_as_data_frames(self.circuit, logger=logger)
+        dfs = gather_model_as_data_frames(self.circuit, logger=logger, legacy=True)
 
         save_data_frames_to_sqlite(dfs,
                                    file_path=self.file_name,
@@ -660,7 +665,7 @@ class FileSave:
                                              profiles_to_export=profiles_to_export,
                                              version=model_version,
                                              desc="Test description.",
-                                             scenariotime=scenario_time,
+                                             scenario_time=scenario_time,
                                              logger=logger)
 
         cim_exporter = CimExporter(cgmes_circuit=cgmes_circuit,

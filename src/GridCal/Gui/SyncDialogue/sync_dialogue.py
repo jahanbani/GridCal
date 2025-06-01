@@ -49,7 +49,7 @@ class SyncDialogueWindow(QtWidgets.QDialog):
         msg.setWindowTitle(title)
         # msg.setDetailedText("The details are as follows:")
         msg.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
-        retval = msg.exec_()
+        retval = msg.exec()
 
     def closeEvent(self, event):
         self.file_sync_thread.resume()
@@ -58,8 +58,8 @@ class SyncDialogueWindow(QtWidgets.QDialog):
 
         l = 0
         idx = item
-        while idx.parent().data() is not None:
-            idx = idx.parent()
+        while idx._parent().data() is not None:
+            idx = idx._parent()
             l += 1
         return l
 

@@ -32,7 +32,7 @@ def get_branches_of_bus(B, j):
 def select_branches_to_reduce(circuit: MultiCircuit, rx_criteria=True, rx_threshold=1e-5,
                               selected_types=BranchType.Branch):
     """
-    Find Branches to remove
+    Find Branches to delete
     Args:
         circuit: Circuit to modify in-place
         rx_criteria: use the r+x threshold to select Branches?
@@ -82,7 +82,9 @@ def reduce_grid_brute(circuit: MultiCircuit, removed_br_idx):
     """
 
     # form C
-    m = circuit.get_branch_number()
+    m = circuit.get_branch_number(add_vsc=False,
+                                  add_hvdc=False,
+                                  add_switch=True)
     n = len(circuit.buses)
     buses_dict = {bus: i for i, bus in enumerate(circuit.buses)}
     C = lil_matrix((m, n), dtype=int)
@@ -138,14 +140,14 @@ def reduce_grid_brute(circuit: MultiCircuit, removed_br_idx):
         circuit.merge_buses(bus1=bus_t, bus2=bus_f)
         updated_bus = bus_t
 
-        # delete bus
+        # delete_with_dialogue bus
         removed_bus = circuit.buses.pop(f)
 
-        # remove the branch and that's it
+        # delete the branch and that's it
         removed_branch = branches.pop(removed_br_idx)
 
     else:
-        # remove the branch and that's it
+        # delete the branch and that's it
         removed_branch = branches.pop(removed_br_idx)
         removed_bus = None
         updated_bus = None
@@ -195,7 +197,7 @@ def reduce_buses(circuit: MultiCircuit, buses_to_reduce: List[Bus], text_func=No
 
     buses_merged = list()
 
-    # remove
+    # delete
     total = len(buses_to_reduce)
     for k, bus in enumerate(buses_to_reduce):
 
@@ -214,22 +216,22 @@ def reduce_buses(circuit: MultiCircuit, buses_to_reduce: List[Bus], text_func=No
                 # remember the buses that keep the devices
                 buses_merged.append(selected)
 
-                # delete the bus from the circuit and the dictionary
+                # delete_with_dialogue the bus from the circuit and the dictionary
                 circuit.delete_bus(bus, delete_associated=True)
                 bus_bus.__delitem__(bus)
             else:
-                # the bus is isolated, so delete it
+                # the bus is isolated, so delete_with_dialogue it
                 circuit.delete_bus(bus, delete_associated=True)
 
         else:
-            # the bus is isolated, so delete it
+            # the bus is isolated, so delete_with_dialogue it
             circuit.delete_bus(bus, delete_associated=True)
 
         if text_func is not None:
             text_func('Removing ' + bus.name + '...')
 
         if prog_func is not None:
-            prog_func((k+1) / total * 100.0)
+            prog_func((k + 1) / total * 100.0)
 
     return buses_merged
 
@@ -238,6 +240,7 @@ class TopologyReductionOptions:
     """
     TopologyReductionOptions
     """
+
     def __init__(self, rx_criteria=False, rx_threshold=1e-5, selected_types=BranchType.Branch):
         """
         Topology reduction options
@@ -273,7 +276,7 @@ class TopologyReduction(DriverTemplate):
         """
         self.tic()
         self.report_progress(0.0)
-        self.report_text('Detecting which Branches to remove...')
+        self.report_text('Detecting which Branches to delete...')
 
         # sort the Branches in reverse order
         self.br_to_remove.sort(reverse=True)
@@ -282,8 +285,7 @@ class TopologyReduction(DriverTemplate):
 
         # for every branch in reverse order...
         for i, br_idx in enumerate(self.br_to_remove):
-
-            # delete branch
+            # delete_with_dialogue branch
             removed_branch, removed_bus, updated_bus, updated_branches = reduce_grid_brute(circuit=self.grid,
                                                                                            removed_br_idx=br_idx)
 
@@ -329,7 +331,7 @@ class DeleteAndReduce(DriverTemplate):
         self.tic()
         self._is_running = True
         self.report_progress(0.0)
-        self.report_text('Detecting which Branches to remove...')
+        self.report_text('Detecting which Branches to delete...')
 
         # get the selected buses
         buses = [self.objects[idx.row()] for idx in self.sel_idx]
@@ -355,4 +357,3 @@ class DeleteAndReduce(DriverTemplate):
 
     def start(self):
         self.run()
-

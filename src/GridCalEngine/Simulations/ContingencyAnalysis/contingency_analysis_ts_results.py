@@ -34,7 +34,7 @@ class ContingencyAnalysisTimeSeriesResults(ResultsTemplate):
         :param n: number of nodes
         :param nbr: number of branches
         :param time_array: array of time values
-        :param bus_names: rray of bus names
+        :param bus_names: array of bus names
         :param branch_names: array of branch names
         :param bus_types: array of bus types
         :param con_names: array of contingency names
@@ -140,19 +140,19 @@ class ContingencyAnalysisTimeSeriesResults(ResultsTemplate):
         rates = nc.Rates.T
         self.max_loading = self.max_flows / (rates + 1e-9)
 
-    def get_results_dict(self):
-        """
-        Returns a dictionary with the results sorted in a dictionary
-        :return: dictionary of 2D numpy arrays (probably of complex numbers)
-        """
-        data = {
-            # 'overload_count': self.overload_count.tolist(),
-            # 'relative_frequency': self.relative_frequency.tolist(),
-            # 'max_overload': self.max_overload.tolist(),
-            'worst_flows': self.max_flows.tolist(),
-            'worst_loading': self.max_loading.tolist(),
-        }
-        return data
+    # def get_dict(self):
+    #     """
+    #     Returns a dictionary with the results sorted in a dictionary
+    #     :return: dictionary of 2D numpy arrays (probably of complex numbers)
+    #     """
+    #     data = {
+    #         # 'overload_count': self.overload_count.tolist(),
+    #         # 'relative_frequency': self.relative_frequency.tolist(),
+    #         # 'max_overload': self.max_overload.tolist(),
+    #         'worst_flows': self.max_flows.tolist(),
+    #         'worst_loading': self.max_loading.tolist(),
+    #     }
+    #     return data
 
     def mdl(self, result_type: ResultTypes):
         """

@@ -1,4 +1,3 @@
-
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -9,7 +8,6 @@ import numpy as np
 from enum import Enum
 from GridCalEngine.enumerations import DeviceType
 from GridCalEngine.basic_structures import Numeric, NumericVec, IntVec, Vec
-
 
 PROFILE_TYPES = Union[type(bool), type(int), type(float), DeviceType, type(Vec)]
 
@@ -46,23 +44,24 @@ class SparseArray:
     SparseArray
     """
 
-    def __init__(self, data_type: PROFILE_TYPES) -> None:
+    def __init__(self, data_type: PROFILE_TYPES, default_value: Any, size: int = 0) -> None:
         """
 
+        :param data_type:
+        :param default_value:
+        :param size:
         """
         self._dtype = data_type
-        self._default_value: Numeric = 0
-        self._size: int = 0
-        self._map: Dict[int, Numeric] = dict()
+        self._default_value: Any | None = self._dtype(default_value) if default_value is not None else None
+        self._size: int = size
+        self._map: Dict[int, Any] = dict()
 
     def copy(self) -> "SparseArray":
         """
         Get a deep copy of this object
         :return: A new SparseArray copy of this object
         """
-        cpy = SparseArray(data_type=self._dtype)
-        cpy._default_value = self._default_value
-        cpy._size = self._size
+        cpy = SparseArray(data_type=self._dtype, default_value=self._default_value, size=self._size)
         cpy._map = self._map.copy()
         return cpy
 
@@ -146,7 +145,7 @@ class SparseArray:
         :param default_value: default value
         :param data: data map
         """
-        self.default_value = default_value
+        self.default_value = self._dtype(default_value) if default_value is not None else None
         self._size = size
         self._map = data if data is not None else dict()
         return self
@@ -156,9 +155,9 @@ class SparseArray:
         """
         Build sparse from array
         :param array: NumericVec
-        :param default_value: defult value of the array
+        :param default_value: default value of the array
         """
-        self.default_value = default_value
+        self.default_value = self._dtype(default_value) if default_value is not None else None
         self._size = len(array)
         self._map: Dict[int, Numeric] = dict()
 
@@ -177,7 +176,7 @@ class SparseArray:
         :param map_data:
         :return:
         """
-        self.default_value = default_value
+        self.default_value = self._dtype(default_value) if default_value is not None else None
         self._size = size
         self._map = map_data
         return self
@@ -187,7 +186,7 @@ class SparseArray:
         Fill the sparse array with the same value
         :param value: any value
         """
-        self.default_value = value
+        self.default_value = self._dtype(value) if value is not None else None
         self._map = dict()
 
     def toarray(self) -> NumericVec:
@@ -259,6 +258,18 @@ class SparseArray:
         """
         return self._size
 
+    def clear(self):
+        """
+        Clear the sparse array
+        :return:
+        """
+        self._map.clear()
+        self._size = 0
+
+    def set_data(self, d: Dict[int, Any]):
+
+        self._map = d
+
     def resize(self, n: int):
         """
         Resize the array
@@ -266,12 +277,12 @@ class SparseArray:
                  If n is smaller than the current container size, the content is
                  reduced to its first n elements, removing those beyond (and destroying them)
         """
-        if n < self._size:  # we need to remove the elements out of range
+        if n < self._size:  # we need to delete the elements out of range
 
             for key, val in self._map.items():
 
                 if key >= n:
-                    # remove elements whose index is now out of bounds from
+                    # delete elements whose index is now out of bounds from
                     # the index -> value map.
                     del self._map[key]
 
@@ -402,7 +413,6 @@ class SparseObjectArray:
         """
         return float(len(self._map)) / float(self._size)
 
-
     def at(self, idx: int) -> Any:
         """
         Get the array at a position
@@ -458,12 +468,12 @@ class SparseObjectArray:
                  If n is smaller than the current container size, the content is
                  reduced to its first n elements, removing those beyond (and destroying them)
         """
-        if n < self._size:  # we need to remove the elements out of range
+        if n < self._size:  # we need to delete the elements out of range
 
             for key, val in self._map.items():
 
                 if key >= n:
-                    # remove elements whose index is now out of bounds from
+                    # delete elements whose index is now out of bounds from
                     # the index -> value map.
                     del self._map[key]
 

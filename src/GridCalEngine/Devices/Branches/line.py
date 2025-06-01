@@ -5,6 +5,7 @@
 
 import numpy as np
 from typing import Union, List
+
 from GridCalEngine.basic_structures import Logger
 from GridCalEngine.Devices.Substation.bus import Bus
 from GridCalEngine.Devices.Substation.connectivity_node import ConnectivityNode
@@ -17,6 +18,25 @@ from GridCalEngine.Devices.Branches.transformer import Transformer2W
 from GridCalEngine.Devices.profile import Profile
 from GridCalEngine.Devices.Associations.association import Associations
 from GridCalEngine.Devices.Branches.line_locations import LineLocations
+
+
+def accept_line_connection(V1: float, V2: float, branch_connection_voltage_tolerance=0.1) -> float:
+    """
+    This function checks if a line can be connected between 2 voltages
+    :param V1: Voltage 1
+    :param V2: Voltage 2
+    :param branch_connection_voltage_tolerance:
+    :return: Can be connected?
+    """
+    if V2 > 0:
+        per = V1 / V2
+
+        if per < (1.0 - branch_connection_voltage_tolerance):
+            return False
+        else:
+            return True
+    else:
+        return V1 == V2
 
 
 class Line(BranchParent):
@@ -52,6 +72,7 @@ class Line(BranchParent):
                  r2=1e-20, x2=1e-20, b2=1e-20,
                  capex=0,
                  opex=0,
+                 circuit_idx: int = 0,
                  build_status: BuildStatus = BuildStatus.Commissioned):
         """
         AC current Line
@@ -147,6 +168,8 @@ class Line(BranchParent):
         # Conductor thermal constant (1/ºC)
         self.alpha = float(alpha)
 
+        self._circuit_idx: int = int(circuit_idx)
+
         # type template
         self.template: Union[OverheadLineType, SequenceLineType, UndergroundLineType] = template
 
@@ -170,6 +193,11 @@ class Line(BranchParent):
         self.register(key='tolerance', units='%', tpe=float,
                       definition='Tolerance expected for the impedance values % is expected '
                                  'for transformers0% for lines.')
+
+        self.register(key='circuit_idx', units='', tpe=int,
+                      definition='Circuit index, used for multiple circuits sharing towers (starts at zero)',
+                      editable=False)
+
         self.register(key='length', units='km', tpe=float, definition='Length of the line (not used for calculation)')
         self.register(key='temp_base', units='ºC', tpe=float, definition='Base temperature at which R was measured.')
         self.register(key='temp_oper', units='ºC', tpe=float, definition='Operation temperature to modify R.',
@@ -275,6 +303,38 @@ class Line(BranchParent):
         self._B2 = float(value)
 
     @property
+    def circuit_idx(self):
+        return self._circuit_idx
+
+    @circuit_idx.setter
+    def circuit_idx(self, value):
+        if value > 0:
+            self._circuit_idx = int(value)
+
+            if self.auto_update_enabled:
+                print("No impedance updates are being done, use the apply_template method to update the impedance values")
+
+
+    def set_circuit_idx(self, val: int, obj: Union[OverheadLineType, UndergroundLineType, SequenceLineType]):
+        """
+        Set the circuit_idx with additional behavior based on the is_user_action flag. Ensure that the template exists and is valid.
+        :param value: The value to set
+        """
+        # If the user is setting the circuit index, ensure that the template exists and is valid
+        if obj is None:
+            raise Exception("Template must be set before changing the circuit index.")
+        if not isinstance(obj, (OverheadLineType, UndergroundLineType, SequenceLineType)):
+            raise Exception("Invalid template type. Must be OverheadLineType, UndergroundLineType, or SequenceLineType.")
+        if isinstance(obj, OverheadLineType):
+            if val > obj.n_circuits:
+                raise Exception("Circuit index exceeds the number of circuits in the template.")
+        if val <= 0:
+            raise Exception("Circuit index must be greater than 0.")
+        else:
+            if val > 0:
+                self._circuit_idx = int(val)
+
+    @property
     def length(self) -> float:
         """
         Line length in km
@@ -285,7 +345,7 @@ class Line(BranchParent):
     @length.setter
     def length(self, val: float):
         """
-        Set the length of the line, if a valid length is provided, the electric parameters are scaled approprietly
+        Set the length of the line, if a valid length is provided, the electric parameters are scaled appropriately
         :param val:
         :return:
         """
@@ -382,7 +442,8 @@ class Line(BranchParent):
         """
         return np.sqrt(self.R * self.R + self.X * self.X)
 
-    def apply_template(self, obj: Union[OverheadLineType, UndergroundLineType, SequenceLineType],
+    def apply_template(self,
+                       obj: Union[OverheadLineType, UndergroundLineType, SequenceLineType],
                        Sbase: float, freq: float,
                        logger=Logger()):
         """
@@ -393,8 +454,40 @@ class Line(BranchParent):
         :param logger: Logger
         """
 
-        if type(obj) in [OverheadLineType, UndergroundLineType, SequenceLineType]:
+        if isinstance(obj, OverheadLineType):
+            if not obj.is_computed():
+                obj.compute()
+                if not obj.is_computed():
+                    return
+            else:
+                pass
 
+            template_vn = obj.Vnom
+            vn = self.get_max_bus_nominal_voltage()
+
+            if not accept_line_connection(template_vn, vn, 0.1):
+                raise Exception('Template voltage differs too much from the line nominal voltage')
+
+            (self.R, self.X, self.B,
+             self.R0, self.X0, self.B0,
+             self.rate) = obj.get_values(Sbase=Sbase,
+                                         length=self.length,
+                                         circuit_index=self.circuit_idx,
+                                         Vnom=vn)
+
+            self.ys.values = obj.get_ys(circuit_idx=self.circuit_idx, Sbase=Sbase, length=self.length, Vnom=vn)
+            self.ysh.values = obj.get_ysh(circuit_idx=self.circuit_idx, Sbase=Sbase, length=self.length, Vnom=vn)
+
+            self.template = obj
+
+        elif isinstance(obj, UndergroundLineType):
+            (self.R, self.X, self.B,
+             self.R0, self.X0, self.B0,
+             self.rate) = obj.get_values(Sbase=Sbase, length=self.length)
+
+            self.template = obj
+
+        elif isinstance(obj, SequenceLineType):
             (self.R, self.X, self.B,
              self.R0, self.X0, self.B0,
              self.rate) = obj.get_values(Sbase=Sbase,
@@ -402,11 +495,7 @@ class Line(BranchParent):
                                          length=self.length,
                                          line_Vnom=self.get_max_bus_nominal_voltage())
 
-            if self.template is not None:
-                if obj != self.template:
-                    self.template = obj
-            else:
-                self.template = obj
+            self.template = obj
 
         else:
             logger.add_error('Template not recognised', self.name)
@@ -492,7 +581,7 @@ class Line(BranchParent):
         return elm
 
     def fill_design_properties(self, r_ohm: float, x_ohm: float, c_nf: float, length: float,
-                               Imax: float, freq: float, Sbase: float, apply_to_profile: bool = True, ):
+                               Imax: float, freq: float, Sbase: float, apply_to_profile: bool = True, ) -> "Line":
         """
         Fill R, X, B from not-in-per-unit parameters
         :param r_ohm: Resistance per km in OHM/km

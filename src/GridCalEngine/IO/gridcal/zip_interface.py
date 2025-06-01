@@ -3,14 +3,15 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 import json
-from io import StringIO, TextIOWrapper, BytesIO
+from io import StringIO, TextIOWrapper, BytesIO, BufferedReader
 import os
 import numpy as np
 import chardet
 import pandas as pd
 import zipfile
 from warnings import warn
-from typing import List, Dict, Union, Callable
+from typing import List, Dict, Union, Callable, Tuple, Any
+from GridCalEngine.Devices.types import GRIDCAL_FILE_TYPE
 from GridCalEngine.basic_structures import Logger
 from GridCalEngine.IO.gridcal.generic_io_functions import parse_config_df, CustomJSONizer
 from GridCalEngine.Simulations.results_template import DriverToSave
@@ -269,7 +270,7 @@ def read_data_frame_from_zip(file_pointer,
 def get_frames_from_zip(file_name_zip: str,
                         text_func: Union[None, Callable[[str], None]] = None,
                         progress_func: Union[None, Callable[[float], None]] = None,
-                        logger=Logger()):
+                        logger=Logger()) -> Tuple[GRIDCAL_FILE_TYPE, Dict[str, Any]]:
     """
     Open the csv files from a zip file
     :param file_name_zip: name of the zip file
@@ -434,7 +435,7 @@ def load_session_driver_objects(file_name_zip: str,
     return data
 
 
-def get_xml_content(file_ptr: zipfile.ZipExtFile) -> List[str]:
+def get_xml_content(file_ptr: zipfile.ZipExtFile | BufferedReader) -> List[str]:
     """
     Reads the content of a file
     :param file_ptr: File pointer (from file or zip file)

@@ -53,16 +53,14 @@ def linear_contingency_analysis(grid: MultiCircuit,
                                          bus_types=nc.bus_data.bus_types,
                                          con_names=linear_multiple_contingencies.get_contingency_group_names())
 
-    linear_analysis = LinearAnalysis(numerical_circuit=nc,
+    linear_analysis = LinearAnalysis(nc=nc,
                                      distributed_slack=options.lin_options.distribute_slack,
                                      correct_values=options.lin_options.correct_values)
-    linear_analysis.run()
 
     linear_multiple_contingencies.compute(lodf=linear_analysis.LODF,
                                           ptdf=linear_analysis.PTDF,
                                           ptdf_threshold=options.lin_options.ptdf_threshold,
-                                          lodf_threshold=options.lin_options.lodf_threshold,
-                                          prepare_for_srap=options.use_srap)
+                                          lodf_threshold=options.lin_options.lodf_threshold)
 
     # get the contingency branch indices
     mon_idx = nc.passive_branch_data.get_monitor_enabled_indices()
@@ -89,8 +87,10 @@ def linear_contingency_analysis(grid: MultiCircuit,
     for ic, multi_contingency in enumerate(linear_multiple_contingencies.multi_contingencies):
 
         if multi_contingency.has_injection_contingencies():
-            cnt = grid.contingencies
-            injections = nc.set_linear_con_or_ra_status(event_list=cnt)
+            contingency_group = grid.contingency_groups[ic]
+            contingencies = linear_multiple_contingencies.contingency_group_dict[contingency_group.idtag]
+            # injections = nc.set_linear_con_or_ra_status(event_list=contingencies)
+            injections = nc.set_con_or_ra_status(event_list=contingencies)
         else:
             injections = None
 

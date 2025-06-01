@@ -55,12 +55,6 @@ class Tiles(BaseTiles):
     A tile object to source server tiles for the widget.
     """
 
-    # allowed file types and associated values
-    AllowedFileTypes = {'png': 'PNG', 'jpg': 'JPG'}
-
-    # the number of seconds in a day
-    SecondsInADay = 60 * 60 * 24
-
     def __init__(self,
                  tile_set_name: str,
                  tile_set_short_name: str,
@@ -92,6 +86,15 @@ class Tiles(BaseTiles):
         :param http_proxy: proxy to use if required
         :param re_fetch_days: fetch new server tile if older than this in days (0 means don't ever update tiles)
         """
+        # perform the base class initialization
+        super().__init__(levels, tile_width, tile_height, tiles_dir, max_lru)
+
+        # allowed file types and associated values
+        self.AllowedFileTypes = {'png': 'PNG', 'jpg': 'JPG'}
+
+        # the number of seconds in a day
+        self.SecondsInADay = 60 * 60 * 24
+
         self.tile_set_name = tile_set_name
         self.tile_set_short_name = tile_set_short_name
         self.tile_set_version = tile_set_version
@@ -104,9 +107,6 @@ class Tiles(BaseTiles):
             level_dir = os.path.join(tiles_dir, '%d' % level)
             if not os.path.isdir(level_dir):
                 os.makedirs(level_dir)
-
-        # perform the base class initialization
-        super().__init__(levels, tile_width, tile_height, tiles_dir, max_lru)
 
         # save params not saved in super()
         self.servers = servers
@@ -133,6 +133,9 @@ class Tiles(BaseTiles):
         # figure out tile filename extension from 'url_path'
         tile_extension = os.path.splitext(url_path)[1][1:]
         tile_extension_lower = tile_extension.lower()  # ensure lower case
+
+        if tile_extension_lower == "":
+            tile_extension_lower = 'jpg'
 
         # determine the file bitmap type
         try:
@@ -221,41 +224,41 @@ class Tiles(BaseTiles):
                 self.workers.append(worker)
                 worker.start()
 
-    def UseLevel(self, level):
+    def set_level(self, level: int):
         """
         Prepare to serve tiles from the required level.
-
-        level  the required level
-
-        Return True if level change occurred, else False if not possible.
+        :param level: the required level
+        :return: True if level change occurred, else False if not possible.
         """
-
         # first, CAN we zoom to this level?
-        if level not in self.levels:
+        if self.level_in_range(level):
+
+            # get tile info
+            info = self.GetInfo(level)
+            if info is None:
+                return False
+
+            # OK, save new level
+            self.level = level
+            self.num_tiles_x, self.num_tiles_y, self.ppd_x, self.ppd_y = info
+
+            # flush any outstanding requests.
+            # we do this to speed up multiple-level zooms so the user doesn't
+            # sit waiting for tiles to arrive that won't be shown.
+            self.FlushRequests()
+
+            return True
+
+        else:
+            # the zoom is out of bounds...
             return False
 
-        # get tile info
-        info = self.GetInfo(level)
-        if info is None:
-            return False
-
-        # OK, save new level
-        self.level = level
-        self.num_tiles_x, self.num_tiles_y, self.ppd_x, self.ppd_y = info
-
-        # flush any outstanding requests.
-        # we do this to speed up multiple-level zooms so the user doesn't
-        # sit waiting for tiles to arrive that won't be shown.
-        self.FlushRequests()
-
-        return True
-
-    def GetTile(self, x, y) -> QPixmap:
+    def GetTile(self, x: float, y: float) -> QPixmap:
         """
         Get bitmap for tile at tile coords (x, y) and current level.
 
-        x  X coord of tile required (tile coordinates)
-        y  Y coord of tile required (tile coordinates)
+        :param x:  X coord of tile required (tile coordinates)
+        :param y:  Y coord of tile required (tile coordinates)
 
         Returns bitmap object for the tile image.
         Tile coordinates are measured from map top-left.
@@ -270,18 +273,18 @@ class Tiles(BaseTiles):
         try:
             # get tile from cache
             tile = self.cache[(self.level, x, y)]
-            if self.tile_on_disk(self.level, x, y):
+            if self.tile_on_disk(level=self.level, x=x, y=y):
                 tile_date = self.cache.tile_date((self.level, x, y))
                 if self.re_request_age and (tile_date < self.re_request_age):
-                    self.get_server_tile(self.level, x, y)
+                    self.get_server_tile(level=self.level, x=x, y=y)
         except KeyError:
             # not cached, start process of getting tile from 'net, return 'pending' image
-            self.get_server_tile(self.level, x, y)
+            self.get_server_tile(level=self.level, x=x, y=y)
             tile = self.pending_tile
 
         return tile
 
-    def GetInfo(self, level):
+    def GetInfo(self, level: int):
         """
         Get tile info for a particular level.
 
@@ -297,14 +300,15 @@ class Tiles(BaseTiles):
         """
 
         # is required level available?
-        if level not in self.levels:
+        if self.level_in_range(level):
+
+            # otherwise get the information
+            self.num_tiles_x = int(math.pow(2, level))
+            self.num_tiles_y = int(math.pow(2, level))
+
+            return self.num_tiles_x, self.num_tiles_y, None, None
+        else:
             return None
-
-        # otherwise get the information
-        self.num_tiles_x = int(math.pow(2, level))
-        self.num_tiles_y = int(math.pow(2, level))
-
-        return self.num_tiles_x, self.num_tiles_y, None, None
 
     def FlushRequests(self):
         """
@@ -335,7 +339,9 @@ class Tiles(BaseTiles):
             self.queued_requests[tile_key] = True
 
     def tile_on_disk(self, level: int, x: float, y: float):
-        """Return True if tile at (level, x, y) is on-disk."""
+        """
+        Return True if tile at (level, x, y) is on-disk.
+        """
 
         tile_path = self.cache.tile_path((level, x, y))
         return os.path.exists(tile_path)
@@ -364,7 +370,7 @@ class Tiles(BaseTiles):
         if not error:
             self.cache.add(key=(level, x, y), image=image)
 
-        # remove the request from the queued requests
+        # delete the request from the queued requests
         # note that it may not be there - a level change can flush the dict
         try:
             del self.queued_requests[(level, x, y)]
@@ -380,11 +386,11 @@ class Tiles(BaseTiles):
 
     def SetAgeThresholdDays(self, num_days):
         """
-        Set the tile refetch threshold time.
+        Set the tile re-fetch threshold time.
 
-        num_days  number of days before refetching tiles
+        num_days  number of days before re-fetching tiles
 
-        If 'num_days' is 0 refetching is inhibited.
+        If 'num_days' is 0 re-fetching is inhibited.
         """
 
         # update the global in case we instantiate again

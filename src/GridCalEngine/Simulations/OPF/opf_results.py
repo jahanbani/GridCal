@@ -22,6 +22,7 @@ class OptimalPowerFlowResults(ResultsTemplate):
                  shunt_like_names: StrVec,
                  battery_names: StrVec,
                  hvdc_names: StrVec,
+                 vsc_names: StrVec,
                  bus_types: IntVec,
                  area_names: StrVec,
                  fluid_node_names: StrVec,
@@ -65,17 +66,22 @@ class OptimalPowerFlowResults(ResultsTemplate):
 
                                                     ResultTypes.BatteryResults: [ResultTypes.BatteryPower],
 
-                                                    ResultTypes.LoadResults: [ResultTypes.LoadShedding],
+                                                    ResultTypes.LoadResults: [ResultTypes.LoadShedding,
+                                                                              ResultTypes.LoadSheddingCost],
 
                                                     ResultTypes.BranchResults: [ResultTypes.BranchActivePowerFrom,
                                                                                 ResultTypes.BranchActivePowerTo,
                                                                                 ResultTypes.BranchLoading,
                                                                                 ResultTypes.BranchLosses,
                                                                                 ResultTypes.BranchOverloads,
+                                                                                ResultTypes.BranchOverloadsCost,
                                                                                 ResultTypes.BranchTapAngle],
 
                                                     ResultTypes.HvdcResults: [ResultTypes.HvdcPowerFrom,
                                                                               ResultTypes.HvdcLoading],
+
+                                                    ResultTypes.VscResults: [ResultTypes.VscPowerFrom,
+                                                                             ResultTypes.VscLoading],
 
                                                     ResultTypes.ReportsResults: [ResultTypes.ContingencyFlowsReport],
 
@@ -96,6 +102,7 @@ class OptimalPowerFlowResults(ResultsTemplate):
         nsh = len(shunt_like_names)
         nload = len(load_names)
         nhvdc = len(hvdc_names)
+        nvsc = len(vsc_names)
         n_fluid_node = len(fluid_node_names)
         n_fluid_path = len(fluid_path_names)
         n_fluid_inj = len(fluid_inj_names)
@@ -107,6 +114,7 @@ class OptimalPowerFlowResults(ResultsTemplate):
         self.battery_names = battery_names
         self.shunt_like_names = shunt_like_names
         self.hvdc_names = hvdc_names
+        self.vsc_names = vsc_names
         self.fluid_node_names = fluid_node_names
         self.fluid_path_names = fluid_path_names
         self.fluid_inj_names = fluid_inj_names
@@ -117,10 +125,12 @@ class OptimalPowerFlowResults(ResultsTemplate):
         self.bus_shadow_prices = np.zeros(n, dtype=float)
 
         self.load_shedding = np.zeros(nload, dtype=float)
+        self.load_shedding_cost = np.zeros(nload, dtype=float)
 
         self.Sf = np.zeros(m, dtype=float)
         self.St = np.zeros(m, dtype=float)
         self.overloads = np.zeros(m, dtype=float)
+        self.overloads_cost = np.zeros(m, dtype=float)
         self.loading = np.zeros(m, dtype=float)
         self.losses = np.zeros(m, dtype=float)
         self.phase_shift = np.zeros(m, dtype=float)
@@ -130,6 +140,10 @@ class OptimalPowerFlowResults(ResultsTemplate):
         self.hvdc_Pf = np.zeros(nhvdc, dtype=float)
         self.hvdc_loading = np.zeros(nhvdc, dtype=float)
         self.hvdc_losses = np.zeros(nhvdc, dtype=float)
+
+        self.vsc_Pf = np.zeros(nvsc, dtype=float)
+        self.vsc_loading = np.zeros(nvsc, dtype=float)
+        self.vsc_losses = np.zeros(nvsc, dtype=float)
 
         self.generator_shedding = np.zeros(ngen, dtype=float)
         self.generator_power = np.zeros(ngen, dtype=float)
@@ -180,10 +194,12 @@ class OptimalPowerFlowResults(ResultsTemplate):
         self.register(name='bus_shadow_prices', tpe=Vec)
 
         self.register(name='load_shedding', tpe=Vec)
+        self.register(name='load_shedding_cost', tpe=Vec)
 
         self.register(name='Sf', tpe=CxVec)
         self.register(name='St', tpe=CxVec)
         self.register(name='overloads', tpe=Vec)
+        self.register(name='overloads_cost', tpe=Vec)
         self.register(name='loading', tpe=Vec)
         self.register(name='losses', tpe=Vec)
         self.register(name='phase_shift', tpe=Vec)
@@ -193,6 +209,10 @@ class OptimalPowerFlowResults(ResultsTemplate):
         self.register(name='hvdc_Pf', tpe=Vec)
         self.register(name='hvdc_loading', tpe=Vec)
         self.register(name='hvdc_losses', tpe=Vec)
+
+        self.register(name='vsc_Pf', tpe=Vec)
+        self.register(name='vsc_loading', tpe=Vec)
+        self.register(name='vsc_losses', tpe=Vec)
 
         self.register(name='generator_power', tpe=Vec)
         self.register(name='generator_reactive_power', tpe=Vec)
@@ -385,6 +405,18 @@ class OptimalPowerFlowResults(ResultsTemplate):
                                 xlabel='',
                                 units='(MW)')
 
+        elif result_type == ResultTypes.BranchOverloadsCost:
+
+            return ResultsTable(data=self.overloads_cost,
+                                index=self.branch_names,
+                                idx_device_type=DeviceType.BranchDevice,
+                                columns=[result_type.value],
+                                cols_device_type=DeviceType.NoDevice,
+                                title=str(result_type.value),
+                                ylabel='(Currency)',
+                                xlabel='',
+                                units='(Currency)')
+
         elif result_type == ResultTypes.BranchLosses:
 
             return ResultsTable(data=self.losses.real,
@@ -420,6 +452,18 @@ class OptimalPowerFlowResults(ResultsTemplate):
                                 ylabel='(MW)',
                                 xlabel='',
                                 units='(MW)')
+
+        elif result_type == ResultTypes.LoadSheddingCost:
+
+            return ResultsTable(data=self.load_shedding_cost,
+                                index=self.load_names,
+                                idx_device_type=DeviceType.LoadLikeDevice,
+                                columns=[result_type.value],
+                                cols_device_type=DeviceType.NoDevice,
+                                title=str(result_type.value),
+                                ylabel='(Currency)',
+                                xlabel='',
+                                units='(Currency)')
 
         elif result_type == ResultTypes.GeneratorShedding:
 
@@ -498,6 +542,30 @@ class OptimalPowerFlowResults(ResultsTemplate):
             return ResultsTable(data=self.hvdc_loading * 100.0,
                                 index=self.hvdc_names,
                                 idx_device_type=DeviceType.HVDCLineDevice,
+                                columns=[result_type.value],
+                                cols_device_type=DeviceType.NoDevice,
+                                title=str(result_type.value),
+                                ylabel='(%)',
+                                xlabel='',
+                                units='(%)')
+
+        elif result_type == ResultTypes.VscPowerFrom:
+
+            return ResultsTable(data=self.vsc_Pf,
+                                index=self.vsc_names,
+                                idx_device_type=DeviceType.VscDevice,
+                                columns=[result_type.value],
+                                cols_device_type=DeviceType.NoDevice,
+                                title=str(result_type.value),
+                                ylabel='(MW)',
+                                xlabel='',
+                                units='(MW)')
+
+        elif result_type == ResultTypes.VscLoading:
+
+            return ResultsTable(data=self.vsc_loading * 100.0,
+                                index=self.vsc_names,
+                                idx_device_type=DeviceType.VscDevice,
                                 columns=[result_type.value],
                                 cols_device_type=DeviceType.NoDevice,
                                 title=str(result_type.value),

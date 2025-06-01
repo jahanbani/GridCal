@@ -165,8 +165,6 @@ class SolverType(Enum):
     """
 
     NR = 'Newton Raphson'
-    # NRFD_XB = 'Fast decoupled XB'
-    # NRFD_BX = 'Fast decoupled BX'
     GAUSS = 'Gauss-Seidel'
     DC = 'Linear DC'
     HELM = 'Holomorphic Embedding'
@@ -174,7 +172,7 @@ class SolverType(Enum):
     PowellDogLeg = "Powell's Dog Leg"
     IWAMOTO = 'Iwamoto-Newton-Raphson'
     CONTINUATION_NR = 'Continuation-Newton-Raphson'
-    HELMZ = 'HELM-Z'
+
     LM = 'Levenberg-Marquardt'
     FASTDECOUPLED = 'Fast decoupled'
     LACPF = 'Linear AC'
@@ -182,12 +180,10 @@ class SolverType(Enum):
     NONLINEAR_OPF = 'Nonlinear OPF'
     SIMPLE_OPF = 'Simple dispatch'
     Proportional_OPF = 'Proportional OPF'
-    # DYCORS_OPF = 'DYCORS OPF'
-    # GA_OPF = 'Genetic Algorithm OPF'
-    # NELDER_MEAD_OPF = 'Nelder Mead OPF'
-    BFS = 'Backwards-Forward substitution'
-    BFS_linear = 'Backwards-Forward substitution (linear)'
-    Constant_Impedance_linear = 'Constant impedance linear'
+
+    BFS = 'Backwards-Forward substitution'  # for PGM
+    BFS_linear = 'Backwards-Forward substitution (linear)'  # for PGM
+    Constant_Impedance_linear = 'Constant impedance linear'  # for PGM
     NoSolver = 'No Solver'
 
     def __str__(self) -> str:
@@ -248,6 +244,7 @@ class EngineType(Enum):
     Bentayga = 'Bentayga'
     NewtonPA = 'Newton Power Analytics'
     PGM = 'Power Grid Model'
+    GSLV = "gslv"
 
     def __str__(self):
         return self.value
@@ -908,6 +905,8 @@ class SubObjectType(Enum):
     Array = "Array"
     ObjectsList = "ObjectsList"
     Associations = "AssociationsList"
+    ListOfWires = 'ListOfWires'
+    AdmittanceMatrix = "Admittance Matrix"
 
     def __str__(self) -> str:
         return str(self.value)
@@ -1104,8 +1103,10 @@ class InvestmentsEvaluationObjectives(Enum):
     """
     PowerFlow = 'PowerFlow'
     TimeSeriesPowerFlow = 'TimeSeriesPowerFlow'
-    OptimalPowerFlow = 'OptimalPowerFlow'
-    TimeSeriesOptimalPowerFlow = 'TimeSeriesOptimalPowerFlow'
+    # OptimalPowerFlow = 'OptimalPowerFlow'
+    # TimeSeriesOptimalPowerFlow = 'TimeSeriesOptimalPowerFlow'
+    GenerationAdequacy = "Adequacy"
+    SimpleDispatch = "Simple dispatch"
     FromPlugin = 'From Plugin'
 
     def __str__(self):
@@ -1316,7 +1317,12 @@ class ResultTypes(Enum):
     BusPower = 'Bus power'
     BusShadowPrices = 'Nodal shadow prices'
     BranchOverloads = 'Branch overloads'
+    BranchOverloadsCost = 'Branch overloads cost'
+
+    LoadPower = 'Load power'
     LoadShedding = 'Load shedding'
+    LoadSheddingCost = "Load shedding cost"
+
     GeneratorShedding = 'Generator shedding'
     GeneratorPower = 'Generator power'
     GeneratorReactivePower = 'Generator reactive power'
@@ -1326,9 +1332,13 @@ class ResultTypes(Enum):
     GeneratorProducing = 'Generator producing'
     GeneratorStartingUp = 'Generator starting up'
     GeneratorShuttingDown = 'Generator shutting down'
+    GeneratorInvested = 'Generator invested'
 
     BatteryReactivePower = 'Battery reactive power'
+    BatteryInvested = 'Battery invested'
+
     ShuntReactivePower = 'Shunt reactive power'
+
 
     BusVoltagePolarPlot = 'Voltage plot'
     BusNodalCapacity = "Nodal capacity"
@@ -1349,6 +1359,8 @@ class ResultTypes(Enum):
     SystemFuel = 'System fuel consumption'
     SystemEmissions = 'System emissions'
     SystemEnergyCost = 'System energy cost'
+    SystemEnergyTotalCost = "System energy total cost"
+    PowerByTechnology = "Power by technology"
 
     # NTC TS
     OpfNtcTsContingencyReport = 'Contingency flow report'
@@ -1358,10 +1370,17 @@ class ResultTypes(Enum):
     BusShortCircuitActivePower = 'Short circuit active power'
     BusShortCircuitReactivePower = 'Short circuit reactive power'
 
+    BusShortCircuitActiveCurrent = 'Short circuit active current'
+    BusShortCircuitReactiveCurrent = 'Short circuit reactive current'
+
     # PTDF
     PTDF = 'PTDF'
     PTDFBusVoltageSensitivity = 'Bus voltage sensitivity'
     LODF = 'LODF'
+    HvdcPTDF = "HVDC PTDF"
+    HvdcODF = "HVDC ODF"
+    VscPTDF = "Vsc PTDF"
+    VscODF = "Vsc ODF"
 
     MaxOverloads = 'Maximum contingency flow'
     ContingencyFlows = 'Contingency flow'
@@ -1396,6 +1415,10 @@ class ResultTypes(Enum):
 
     FluidFlowPath = 'Flow in the river'
     FluidFlowInjection = 'Flow circulating in the device'
+
+    # OPF plots
+    OpfBalancePlot = "Balance plot"
+    OpfTechnologyPlot = "Technology plot"
 
     # sigma
     SigmaReal = 'Sigma real'
@@ -1533,6 +1556,9 @@ class ResultTypes(Enum):
     InvestmentsIterationsPlot = 'Iterations plot'
     InvestmentsParetoPlotNSGA2 = 'Pareto plot NSGA2'
 
+    # reliability
+    ReliabilityLoleResults = "LOLE"
+
     def __str__(self):
         return self.value
 
@@ -1589,6 +1615,7 @@ class SimulationTypes(Enum):
     InvestmentsEvaluation_run = 'Investments evaluation'
     TopologyProcessor_run = 'Topology Processor'
     NodalCapacityTimeSeries_run = 'Nodal capacity time series'
+    Reliability_run = "Reliability"
 
     NoSim = "No simulation"
 
@@ -1800,6 +1827,37 @@ class BranchGroupTypes(Enum):
         """
         try:
             return BranchGroupTypes[s]
+        except KeyError:
+            return s
+
+    @classmethod
+    def list(cls):
+        """
+
+        :return:
+        """
+        return list(map(lambda c: c.value, cls))
+
+
+class CascadeType(Enum):
+    PowerFlow = "PowerFlow",
+    LatinHypercube = "LHS"
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __repr__(self):
+        return str(self)
+
+    @staticmethod
+    def argparse(s):
+        """
+
+        :param s:
+        :return:
+        """
+        try:
+            return CascadeType[s]
         except KeyError:
             return s
 

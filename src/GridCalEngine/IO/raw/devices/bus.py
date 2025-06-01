@@ -2,7 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-import numpy as np
+from typing import List, Any
 from GridCalEngine.IO.base.units import Unit
 from GridCalEngine.IO.raw.devices.psse_object import RawObject
 from GridCalEngine.basic_structures import Logger
@@ -26,6 +26,8 @@ class RawBus(RawObject):
         self.NVLO = 0.95
         self.EVHI = 1.1
         self.EVLO = 0.9
+        self.GL = 0.0
+        self.BL = 0.0
 
         self.register_property(property_name="I",
                                rawx_key="ibus",
@@ -124,7 +126,7 @@ class RawBus(RawObject):
                                unit=Unit.get_pu(),
                                format_rule=".5f")
 
-    def parse(self, data, version, logger: Logger):
+    def parse(self, data: List[List[Any]], version: int, logger: Logger):
         """
 
         :param data:
@@ -135,49 +137,30 @@ class RawBus(RawObject):
         self.version = version
 
         if version >= 33:
-            n = len(data[0])
-            dta = np.zeros(13, dtype=object)
-            dta[0:n] = data[0]
 
-            self.I, self.NAME, self.BASKV, self.IDE, self.AREA, self.ZONE, \
-                self.OWNER, self.VM, self.VA, self.NVHI, self.NVLO, self.EVHI, self.EVLO = dta
+            (self.I, self.NAME, self.BASKV, self.IDE, self.AREA, self.ZONE,
+             self.OWNER, self.VM, self.VA, self.NVHI, self.NVLO, self.EVHI, self.EVLO) = self.extend_or_curtail(data[0], 13)
 
         elif version == 32:
 
-            self.I, self.NAME, self.BASKV, self.IDE, self.AREA, self.ZONE, self.OWNER, self.VM, self.VA = data[0]
+            (self.I, self.NAME, self.BASKV, self.IDE, self.AREA, self.ZONE,
+             self.OWNER, self.VM, self.VA) = self.extend_or_curtail(data[0], 9)
 
         elif version in [29, 30]:
-            # I, 'NAME', BASKV, IDE, GL, BL, AREA, ZONE, VM, VA, OWNER
-            self.I, self.NAME, self.BASKV, self.IDE, self.GL, self.BL, \
-                self.AREA, self.ZONE, self.VM, self.VA, self.OWNER = data[0]
+
+            (self.I, self.NAME, self.BASKV, self.IDE, self.GL, self.BL,
+             self.AREA, self.ZONE, self.VM, self.VA, self.OWNER) = self.extend_or_curtail(data[0], 11)
 
 
         else:
             logger.add_warning('Bus not implemented for version', str(version))
 
-    def get_raw_line(self, version):
+    def get_raw_line(self, version: int):
         """
         Get raw file line(s)
         :param version: supported version
         :return:
         """
-        # if version >= 33:
-        #
-        #     return self.format_raw_line(["I", "NAME", "BASKV", "IDE", "AREA", "ZONE",
-        #                                  "OWNER", "VM", "VA", "NVHI", "NVLO", "EVHI", "EVLO"])
-        #
-        # elif version == 32:
-        #
-        #     return self.format_raw_line(["I", "NAME", "BASKV", "IDE", "AREA", "ZONE",
-        #                                  "OWNER", "VM", "VA"])
-        #
-        # elif version in [29, 30]:
-        #
-        #     return self.format_raw_line(["I", "NAME", "BASKV", "IDE", "GL", "BL",
-        #                                  "AREA", "ZONE", "VM", "VA", "OWNER"])
-        #
-        # else:
-        #     raise Exception('Bus not implemented for version', str(version))
 
         if version >= 33:
             return self.format_raw_line(["I", "NAME", "BASKV", "IDE", "AREA", "ZONE",
@@ -197,5 +180,3 @@ class RawBus(RawObject):
 
     def get_id(self) -> str:
         return str(self.I)
-
-

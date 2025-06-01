@@ -6,7 +6,9 @@
 import numpy as np
 import numba as nb
 import scipy.sparse as sp
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Dict
+
+from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve as scipy_spsolve
 
 from GridCalEngine.basic_structures import Logger, Vec, IntVec, CxVec, Mat, ObjVec, CxMat
@@ -20,7 +22,6 @@ from GridCalEngine.Utils.Sparse.csc import dense_to_csc
 import GridCalEngine.Utils.Sparse.csc2 as csc
 from GridCalEngine.Utils.MIP.selected_interface import lpDot
 from GridCalEngine.enumerations import ContingencyOperationTypes
-
 
 
 @nb.njit()
@@ -145,10 +146,10 @@ def make_ptdf(Bpqpv: sp.csc_matrix,
     """
 
     n = Bf.shape[1]
-    nb = n
-    nbi = n
-    noref = no_slack  # np.arange(1, nb)
-    noslack = no_slack
+    # nb = n
+    # nbi = n
+    # noref = no_slack  # np.arange(1, nb)
+    # noslack = no_slack
 
     if distribute_slack:
         dP = np.ones((n, n)) * (-1 / (n - 1))
@@ -158,14 +159,14 @@ def make_ptdf(Bpqpv: sp.csc_matrix,
         dP = np.eye(n, n)
 
     # solve for change in voltage angles
-    dTheta = np.zeros((nb, nbi))
+    dTheta = np.zeros((n, n))
     # Bref = Bbus[noslack, :][:, noref].tocsc()
-    dtheta_ref = scipy_spsolve(Bpqpv, dP[noslack, :])
+    dtheta_ref = scipy_spsolve(Bpqpv, dP[no_slack, :])
 
     if sp.issparse(dtheta_ref):
-        dTheta[noref, :] = dtheta_ref.toarray()
+        dTheta[no_slack, :] = dtheta_ref.toarray()
     else:
-        dTheta[noref, :] = dtheta_ref
+        dTheta[no_slack, :] = dtheta_ref
 
     # compute corresponding change in branch Sf
     # Bf is a sparse matrix
@@ -360,92 +361,51 @@ class ContingencyIndices:
     Contingency indices
     """
 
-    def __init__(self, contingency_group: ContingencyGroup, contingency_group_dict, branches_dict,
-                 generator_dict, bus_index_dict):
-
-        (self.branch_contingency_indices,
-         self.bus_contingency_indices,
-         self.injections_factors) = self.get_contingencies_info(contingency_group=contingency_group,
-                                                                contingency_group_dict=contingency_group_dict,
-                                                                branches_dict=branches_dict,
-                                                                generator_dict=generator_dict,
-                                                                bus_index_dict=bus_index_dict)
-
-    @staticmethod
-    def try_find_indices(cnt: Contingency, branches_dict, generator_dict, bus_index_dict,
-                         branch_contingency_indices, bus_contingency_indices, injections_factors):
+    def __init__(self,
+                 contingency_group: ContingencyGroup,
+                 contingency_group_dict: Dict[str, List[Contingency]],
+                 branches_dict: Dict[str, int],
+                 generator_bus_index_dict: Dict[str, int]):
         """
-        Try to find the contingency indices f the device in the contingency
-        :param cnt: Contingency
-        :param branches_dict:
-        :param generator_dict:
-        :param bus_index_dict:
-        :param branch_contingency_indices:
-        :param bus_contingency_indices:
-        :param injections_factors:
-        :return:
-        """
-        # search for the contingency in the Branches
-        br_idx = branches_dict.get(cnt.device_idtag, None)
-        branch_found = False
-        if br_idx is not None:
-            if cnt.prop == ContingencyOperationTypes.Active:
-                branch_contingency_indices.append(br_idx)
-                return
-            else:
-                branch_found = True
-                print(f'Unknown branch contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
-        else:
-            branch_found = False
-
-        gen = generator_dict.get(cnt.device_idtag, None)
-        gen_found = False
-        if gen is not None:
-            if cnt.prop == ContingencyOperationTypes.PowerPercentage:
-                bus_contingency_indices.append(bus_index_dict[gen.bus])
-                injections_factors.append(cnt.value / 100.0)
-                return
-            else:
-                branch_found = True
-                print(f'Unknown generator contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
-        else:
-            gen_found = False
-
-        if not branch_found:
-            print(f"contingency branch {cnt.device_idtag} not found")
-        if not gen_found:
-            print(f"contingency generator {cnt.device_idtag} not found")
-
-    def get_contingencies_info(self, contingency_group: ContingencyGroup,
-                               contingency_group_dict, branches_dict,
-                               generator_dict, bus_index_dict) -> Tuple[IntVec, IntVec, Vec]:
-        """
-        Get the indices from a contingency group
-        :param contingency_group:
-        :param contingency_group_dict:
-        :param branches_dict:
-        :param generator_dict:
-        :param bus_index_dict:
-        :return: branch_contingency_indices, bus_contingency_indices, injections_factors
+        Contingency indices
+        :param contingency_group: ContingencyGroup
+        :param contingency_group_dict: dictionary to get the list of contingencies matching a contingency group
+        :param branches_dict: dictionary to get the branch index by the branch idtag
+        :param generator_bus_index_dict: dictionary to get the generator bus index by the generator idtag
         """
 
         # get the group's contingencies
         contingencies = contingency_group_dict[contingency_group.idtag]
 
-        branch_contingency_indices = list()
-        bus_contingency_indices = list()
-        injections_factors = list()
+        branch_contingency_indices_list = list()
+        bus_contingency_indices_list = list()
+        injections_factors_list = list()
 
         # apply the contingencies
         for cnt in contingencies:
-            self.try_find_indices(cnt, branches_dict, generator_dict, bus_index_dict,
-                                  branch_contingency_indices, bus_contingency_indices, injections_factors)
 
-        branch_contingency_indices = np.array(branch_contingency_indices)
-        bus_contingency_indices = np.array(bus_contingency_indices)
-        injections_factors = np.array(injections_factors)
+            if cnt.prop == ContingencyOperationTypes.Active:
 
-        return branch_contingency_indices, bus_contingency_indices, injections_factors
+                # search for the contingency in the Branches
+                br_idx = branches_dict.get(cnt.device_idtag, None)
+                if br_idx is not None:
+                    branch_contingency_indices_list.append(br_idx)
+                else:
+                    print(f"contingency branch {cnt.device_idtag} not found")
+
+            elif cnt.prop == ContingencyOperationTypes.PowerPercentage:
+                bus_idx = generator_bus_index_dict.get(cnt.device_idtag, None)
+                if bus_idx is not None:
+                    bus_contingency_indices_list.append(bus_idx)
+                    injections_factors_list.append(cnt.value / 100.0)
+                else:
+                    print(f"contingency generator {cnt.device_idtag} not found")
+            else:
+                print(f'Unknown branch contingency property {cnt.prop} at {cnt.name} {cnt.idtag}')
+
+        self.branch_contingency_indices = np.array(branch_contingency_indices_list)
+        self.bus_contingency_indices = np.array(bus_contingency_indices_list)
+        self.injections_factors = np.array(injections_factors_list)
 
 
 class LinearMultiContingencies:
@@ -464,26 +424,33 @@ class LinearMultiContingencies:
 
         # auxiliary structures
         self.__contingency_group_dict = grid.get_contingency_group_dict()
-        self.__bus_index_dict = grid.get_bus_index_dict()
+        bus_index_dict = grid.get_bus_index_dict()
         self.__branches_dict = {b.idtag: i for i, b in enumerate(grid.get_branches_wo_hvdc())}
-        self.__generator_dict = {g.idtag: g for g in grid.get_contingency_devices()}
+        self.__generator_bus_index_dict = {g.idtag: bus_index_dict[g.bus] for g in grid.get_generators()}
 
-        self.contingency_indices = list()
+        self.contingency_indices_list = list()
 
         # for each contingency group
         for ic, contingency_group in enumerate(self.contingency_groups_used):
-            self.contingency_indices.append(ContingencyIndices(contingency_group=contingency_group,
-                                                               contingency_group_dict=self.__contingency_group_dict,
-                                                               branches_dict=self.__branches_dict,
-                                                               generator_dict=self.__generator_dict,
-                                                               bus_index_dict=self.__bus_index_dict))
+            self.contingency_indices_list.append(
+                ContingencyIndices(
+                    contingency_group=contingency_group,
+                    contingency_group_dict=self.__contingency_group_dict,
+                    branches_dict=self.__branches_dict,
+                    generator_bus_index_dict=self.__generator_bus_index_dict
+                )
+            )
 
         # list of LinearMultiContingency objects that are used later to compute the contingency flows
         self.multi_contingencies: List[LinearMultiContingency] = list()
 
+    @property
+    def contingency_group_dict(self) -> Dict[str, List[Contingency]]:
+        return self.__contingency_group_dict
+
     def get_contingency_group_names(self) -> List[str]:
         """
-        Returns a list of of the names of the used contingency groups
+        Returns a list of the names of the used contingency groups
         :return:
         """
         return [elm.name for elm in self.contingency_groups_used]
@@ -492,15 +459,13 @@ class LinearMultiContingencies:
                 lodf: Mat,
                 ptdf: Mat,
                 ptdf_threshold: float = 0.0001,
-                lodf_threshold: float = 0.0001,
-                prepare_for_srap: bool = False) -> None:
+                lodf_threshold: float = 0.0001) -> None:
         """
         Make the LODF with any contingency combination using the declared contingency objects
         :param lodf: original LODF matrix (nbr, nbr)
         :param ptdf: original PTDF matrix (nbr, nbus)
         :param ptdf_threshold: threshold to discard values
         :param lodf_threshold: Threshold for LODF conversion to sparse
-        :param prepare_for_srap:
         :return: None
         """
 
@@ -509,7 +474,7 @@ class LinearMultiContingencies:
         # for each contingency group
         for ic, contingency_group in enumerate(self.contingency_groups_used):
 
-            contingency_indices = self.contingency_indices[ic]
+            contingency_indices: ContingencyIndices = self.contingency_indices_list[ic]
 
             if len(contingency_indices.branch_contingency_indices) > 1:
 
@@ -612,37 +577,32 @@ class LinearAnalysis:
     """
 
     def __init__(self,
-                 numerical_circuit: NumericalCircuit,
+                 nc: NumericalCircuit,
                  distributed_slack: bool = True,
                  correct_values: bool = False):
         """
         Linear Analysis constructor
-        :param numerical_circuit: numerical circuit instance
+        :param nc: numerical circuit instance
         :param distributed_slack: boolean to distribute slack
         :param correct_values: boolean to fix out layer values
         """
 
-        self.numerical_circuit: NumericalCircuit = numerical_circuit
-        self.distributed_slack: bool = distributed_slack
-        self.correct_values: bool = correct_values
-
-        self.PTDF: Union[np.ndarray, None] = None
-        self.LODF: Union[np.ndarray, None] = None
-
         self.logger: Logger = Logger()
 
-    def run(self):
-        """
-        Compute the PTDF and LODF for all the islands
-        """
-
-        # self.numerical_circuit = compile_snapshot_circuit(self.grid)
-        islands = self.numerical_circuit.split_into_islands()
-        n_br = self.numerical_circuit.nbr
-        n_bus = self.numerical_circuit.nbus
+        islands = nc.split_into_islands()
+        n_br = nc.nbr
+        n_bus = nc.nbus
+        n_hvdc = nc.hvdc_data.nelm
+        n_vsc = nc.vsc_data.nelm
 
         self.PTDF = np.zeros((n_br, n_bus))
         self.LODF = np.zeros((n_br, n_br))
+
+        self.HvdcDF: Mat = np.zeros((n_hvdc, n_bus))
+        self.HvdcODF: Mat = np.zeros((n_br, n_hvdc))
+
+        self.VscDF: Mat = np.zeros((n_vsc, n_bus))
+        self.VscODF: Mat = np.zeros((n_br, n_vsc))
 
         # compute the PTDF per islands
         if len(islands) > 0:
@@ -662,7 +622,7 @@ class LinearAnalysis:
                         ptdf_island = make_ptdf(Bpqpv=Bpqpv,
                                                 Bf=adml.Bf,
                                                 no_slack=indices.no_slack,
-                                                distribute_slack=self.distributed_slack)
+                                                distribute_slack=distributed_slack)
 
                         # assign the PTDF to the main PTDF matrix
                         self.PTDF[np.ix_(island.passive_branch_data.original_idx,
@@ -672,7 +632,7 @@ class LinearAnalysis:
                         lodf_island = make_lodf(Cf=island.passive_branch_data.Cf.tocsc(),
                                                 Ct=island.passive_branch_data.Ct.tocsc(),
                                                 PTDF=ptdf_island,
-                                                correct_values=self.correct_values)
+                                                correct_values=correct_values)
 
                         # assign the LODF to the main LODF matrix
                         self.LODF[np.ix_(island.passive_branch_data.original_idx,
@@ -686,33 +646,42 @@ class LinearAnalysis:
                 else:
                     self.logger.add_error('More than one slack bus', 'Island {}'.format(n_island))
         else:
+            # there are no islands
+            pass
 
-            idx = islands[0].get_simulation_indices()
-            adml = islands[0].get_linear_admittance_matrices(indices=idx)
-            Bpqpv = adml.get_Bred(pqpv=idx.no_slack)
+        # compute the HVDC PTDF (HVDC lines, Buses)
+        A_hvdc = lil_matrix((n_bus, n_hvdc))
+        for k in range(n_hvdc):
+            f = nc.hvdc_data.F[k]
+            t = nc.hvdc_data.T[k]
+            A_hvdc[f, k] = -1  # subtracts power at the "from" side
+            A_hvdc[t, k] = 1  # injects power at the "to" side
+            self.HvdcODF[:, k] = self.PTDF[:, f] - self.PTDF[:, t]
 
-            # there is only 1 island, compute the PTDF
-            self.PTDF = make_ptdf(Bpqpv=Bpqpv,
-                                  Bf=adml.Bf,
-                                  no_slack=idx.no_slack,
-                                  distribute_slack=self.distributed_slack)
+        self.HvdcDF = self.PTDF @ A_hvdc
 
-            # compute the LODF upon the PTDF
-            self.LODF = make_lodf(Cf=islands[0].passive_branch_data.Cf.tocsc(),
-                                  Ct=islands[0].passive_branch_data.Ct.tocsc(),
-                                  PTDF=self.PTDF,
-                                  correct_values=self.correct_values)
+        # compute the VSC PTDF (HVDC lines, Buses)
+        A_vsc = lil_matrix((n_bus, n_vsc))
+        for k in range(n_vsc):
+            f = nc.vsc_data.F[k]
+            t = nc.vsc_data.T[k]
+            A_vsc[f, k] = -1  # subtracts power at the "from" side
+            A_vsc[t, k] = 1  # injects power at the "to" side
+            self.VscODF[:, k] = self.PTDF[:, f] - self.PTDF[:, t]
 
-    def get_transfer_limits(self, flows: np.ndarray):
+        self.VscDF = self.PTDF @ A_vsc
+
+    def get_transfer_limits(self, flows: np.ndarray, rates: Vec):
         """
         Compute the maximum transfer limits of each branch in normal operation
         :param flows: base Sf in MW
+        :param rates: rates in MW
         :return: Max transfer limits vector (n-branch)
         """
         return make_transfer_limits(
             ptdf=self.PTDF,
             flows=flows,
-            rates=self.numerical_circuit.passive_branch_data.rates
+            rates=rates
         )
 
     def get_flows(self, Sbus: Union[CxVec, CxMat]) -> Union[CxVec, CxMat]:

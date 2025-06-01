@@ -3,7 +3,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
-
 from typing import Union
 from GridCalEngine.Devices.Parents.editable_device import EditableDevice, DeviceType
 
@@ -33,7 +32,8 @@ class GenericAreaGroup(EditableDevice):
 
         self.register(key='longitude', units='deg', tpe=float, definition='longitude.', profile_name='')
         self.register(key='latitude', units='deg', tpe=float, definition='latitude.', profile_name='')
-        self.register(key='color', units='', tpe=str, definition='Color to paint the SE in the map diagram')
+        self.register(key='color', units='', tpe=str, definition='Color to paint the element in the map diagram',
+                      is_color=True)
 
 
 class Area(GenericAreaGroup):

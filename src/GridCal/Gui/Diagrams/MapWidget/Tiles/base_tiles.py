@@ -36,8 +36,10 @@ from PySide6.QtGui import QPixmap
 from GridCal.Gui.Diagrams.MapWidget.Tiles.tiles_cache import TilesCache
 
 
-class BaseTiles(object):
-    """A base tile object to source local tiles for pySlip."""
+class BaseTiles:
+    """
+    A base tile object to source local tiles for pySlip.
+    """
 
     def __init__(self,
                  levels: List[int],
@@ -71,11 +73,10 @@ class BaseTiles(object):
         self.ppd_x = 0
         self.ppd_y = 0
 
-        # TODO: implement map wrap-around
         self.wrap_x = False
         self.wrap_y = False
 
-        # setup the tile cache
+        # set up the tile cache
         self.cache = TilesCache(tiles_dir=tiles_dir, max_lru=max_lru)
 
         #####
@@ -91,8 +92,9 @@ class BaseTiles(object):
                 msg = ("%s doesn't appear to be a tile cache directory" % tiles_dir)
                 raise Exception(msg) from None
 
-            msg = "The tiles directory %s doesn't exist." % tiles_dir
-            raise Exception(msg) from None
+            # raise Exception(msg) from None
+            os.makedirs(tiles_dir)
+            print(f"The tiles directory {tiles_dir} has been created")
 
     @property
     def max_level(self):
@@ -109,6 +111,15 @@ class BaseTiles(object):
         :return:
         """
         return self._min_level
+
+    def level_in_range(self, level) -> bool:
+        """
+        Check if the level is in range
+        :param level: level value
+        :return: in range?
+        """
+        # first, CAN we zoom to this level?
+        return self.min_level <= level <= self.max_level
 
     @property
     def tile_width(self):
@@ -174,34 +185,37 @@ class BaseTiles(object):
         """
         return self.extent[3]
 
-    def UseLevel(self, level):
-        """Prepare to serve tiles from the required level.
+    def set_level(self, level: int):
+        """
+        Prepare to serve tiles from the required level.
 
-        level  the required level
+        :param level:  the required level
 
         Return True if level change occurred, else False if not possible.
         """
 
         # first, CAN we zoom to this level?
-        if level not in self.levels:
+        if self.level_in_range(level):
+
+            # get tile info
+            info = self.GetInfo(level)
+            if info is None:
+                return False
+
+            # OK, save new level
+            self.level = level
+            self.num_tiles_x, self.num_tiles_y, self.ppd_x, self.ppd_y = info
+            return True
+
+        else:
             return False
-
-        # get tile info
-        info = self.GetInfo(level)
-        if info is None:
-            return False
-
-        # OK, save new level
-        self.level = level
-        self.num_tiles_x, self.num_tiles_y, self.ppd_x, self.ppd_y = info
-
-        return True
 
     def GetTile(self, x: float, y: float) -> QPixmap:
-        """Get bitmap for tile at tile coords (x, y) and current level.
+        """
+        Get bitmap for tile at tile coords (x, y) and current level.
 
-        x  X coord of tile required (tile coordinates)
-        y  Y coord of tile required (tile coordinates)
+        :param x: X coord of tile required (tile coordinates)
+        :param y: Y coord of tile required (tile coordinates)
 
         Returns bitmap object for the tile image.
         Tile coordinates are measured from map top-left.
@@ -210,21 +224,21 @@ class BaseTiles(object):
         # if we are wrapping X or Y, get wrapped tile coords
         if self.wrap_x:
             x = (x + self.num_tiles_x * self.tile_size_x) % self.num_tiles_x
+
         if self.wrap_y:
             y = (y + self.num_tiles_y * self.tile_size_y) % self.num_tiles_y
 
-            # retrieve the tile
         try:
             # get tile from cache
             return self.cache[(self.level, x, y)]
+
         except KeyError as e:
             raise KeyError("Can't find tile for key '%s'" % str((self.level, x, y))) from None
 
     def GetInfo(self, level: int) -> Union[Tuple[float, float, None, None], None]:
-        """Get tile info for a particular level.
-
-        level  the level to get tile info for
-
+        """
+        Get tile info for a particular level.
+        :param level:  the level to get tile info for
         Returns (num_tiles_x, num_tiles_y, ppd_x, ppd_y) or None if 'level'
         doesn't exist.
 
@@ -233,18 +247,22 @@ class BaseTiles(object):
         """
 
         # is required level available?
-        if level not in self.levels:
+        if self.level_in_range(level):
+
+            # otherwise get the information
+            self.num_tiles_x = int(math.pow(2, level))
+            self.num_tiles_y = int(math.pow(2, level))
+
+            return self.num_tiles_x, self.num_tiles_y, None, None
+
+        else:
             return None
 
-        # otherwise get the information
-        self.num_tiles_x = int(math.pow(2, level))
-        self.num_tiles_y = int(math.pow(2, level))
-
-        return self.num_tiles_x, self.num_tiles_y, None, None
-
     def GetExtent(self):
-        """Get geo limits of the map tiles.
-                         (min_lon,   max_lon,   min_lat,   max_lat)
+        """
+        Get geo limits of the map tiles.
+        (min_lon,   max_lon,   min_lat,   max_lat)
+
         Returns a tuple: (min_geo_x, max_geo_x, min_geo_y, max_geo_y)
         """
 
@@ -253,6 +271,9 @@ class BaseTiles(object):
     def tile_on_disk(self, level: int, x: float, y: float):
         """
         Return True if tile at (level, x, y) is on-disk.
+        :param level: Map level
+        :param x: map x coordinate
+        :param y: map y coordinate
         """
         raise Exception('You must override BaseTiles.tile_on_disk(level, x, y))')
 
@@ -266,13 +287,13 @@ class BaseTiles(object):
     def Geo2Tile(self, longitude: float, latitude: float) -> Tuple[int, int]:
         """
         Convert geo to tile fractional coordinates for level in use.
-        xgeo   geo longitude in degrees
-        ygeo   geo latitude in degrees
-
         Note that we assume the point *is* on the map!
+        :param longitude: geo longitude in degrees
+        :param latitude: geo latitude in degrees
+        :return x_tile, y_tile (tile fractional X, Y coordinate)
         """
 
-        raise Exception('You must override BaseTiles.Geo2Tile(xgeo, ygeo)')
+        raise Exception('You must override BaseTiles.Geo2Tile(longitude, latitude)')
 
     def Tile2Geo(self, x_tile: float, y_tile: float) -> Tuple[float, float]:
         """
@@ -284,4 +305,4 @@ class BaseTiles(object):
         Note that we assume the point *is* on the map!
         """
 
-        raise Exception('You must override BaseTiles.Tile2Geo(xtile, ytile)')
+        raise Exception('You must override BaseTiles.Tile2Geo(x_tile, y_tile)')

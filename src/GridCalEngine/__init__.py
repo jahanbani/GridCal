@@ -14,6 +14,9 @@ try:
     from GridCalEngine.DataStructures import *
     from GridCalEngine.Topology import *
     from GridCalEngine.Compilers import *
+    from GridCalEngine.IO.file_handler import FileOpen, FileSave, FileSavingOptions
+    from GridCalEngine.IO.gridcal.remote import (gather_model_as_jsons_for_communication, RemoteInstruction,
+                                                 SimulationTypes, send_json_data, get_certificate_path, get_certificate)
 
     PROPERLY_LOADED_API = True
 except ModuleNotFoundError as e:
@@ -362,3 +365,18 @@ if PROPERLY_LOADED_API:
             driver_contingencies.results.expand_clustered_results()
 
         return driver_contingencies.results
+
+
+    def clustering(circuit: MultiCircuit, n_points=100) -> ClusteringResults:
+        """
+        Perform a clustering analysis for time series
+        This will analyze the loads and non dispatchable generation to get the time
+        indices that best represent the whole time series. It included each sample probability
+        :param circuit: MultiCircuit
+        :param n_points: number of clustering points
+        :return: ClusteringResults
+        """
+        opts = ClusteringAnalysisOptions(n_points)
+        drv = ClusteringDriver(grid=circuit, options=opts)
+        drv.run()
+        return drv.results

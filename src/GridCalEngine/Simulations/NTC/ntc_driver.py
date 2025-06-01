@@ -5,7 +5,7 @@
 
 from typing import List
 from GridCalEngine.Devices.multi_circuit import MultiCircuit
-from GridCalEngine.Simulations.NTC.ntc_opf import run_linear_ntc_opf_ts
+from GridCalEngine.Simulations.NTC.ntc_opf import run_linear_ntc_opf
 from GridCalEngine.Simulations.driver_template import DriverTemplate
 from GridCalEngine.Simulations.NTC.ntc_options import OptimalNetTransferCapacityOptions
 from GridCalEngine.Simulations.NTC.ntc_results import OptimalNetTransferCapacityResults
@@ -50,9 +50,9 @@ class OptimalNetTransferCapacityDriver(DriverTemplate):
 
         self.report_text('Formulating NTC OPF...')
 
-        opf_vars = run_linear_ntc_opf_ts(
+        opf_vars = run_linear_ntc_opf(
             grid=self.grid,
-            time_indices=None,
+            t=None,
             solver_type=self.options.opf_options.mip_solver,
             zonal_grouping=self.options.opf_options.zonal_grouping,
             skip_generation_limits=self.options.skip_generation_limits,
@@ -77,13 +77,13 @@ class OptimalNetTransferCapacityDriver(DriverTemplate):
         # pack the results
         self.results = OptimalNetTransferCapacityResults(
             bus_names=self.grid.get_bus_names(),
-            branch_names=self.grid.get_branch_names_wo_hvdc(),
+            branch_names=self.grid.get_branch_names(add_hvdc=False, add_vsc=False, add_switch=True),
             hvdc_names=self.grid.get_hvdc_names(),
             contingency_group_names=self.grid.get_contingency_group_names()
         )
 
         self.results.voltage = opf_vars.get_voltages()[0, :]
-        self.results.Sbus = opf_vars.bus_vars.Pcalc[0, :]
+        self.results.Sbus = opf_vars.bus_vars.Pinj[0, :]
         self.results.dSbus = opf_vars.bus_vars.delta_p[0, :]
         self.results.bus_shadow_prices = opf_vars.bus_vars.shadow_prices[0, :]
         self.results.load_shedding = opf_vars.bus_vars.load_shedding[0, :]

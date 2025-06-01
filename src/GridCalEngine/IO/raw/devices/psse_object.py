@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MPL-2.0
 import hashlib
 import uuid as uuidlib
-from typing import List, Dict, TypeVar
+from typing import List, Dict, TypeVar, Any
 from GridCalEngine.IO.base.units import Unit
 from GridCalEngine.IO.raw.devices.psse_property import PsseProperty
 
@@ -127,6 +127,7 @@ class RawObject:
         :param max_chars:
         :param min_value:
         :param max_value:
+        :param format_rule: some formatting rule
         """
         if hasattr(self, property_name):
             self.__registered_properties[property_name] = PsseProperty(property_name=property_name,
@@ -158,6 +159,23 @@ class RawObject:
                 else:
                     lst.append(str(val))
         return ", ".join(lst)
+
+    @staticmethod
+    def extend_or_curtail(data: List[Any], n: int) -> List[Any]:
+        """
+        Extends of curtails the input so that it marches what's expected
+        :param data: list of values
+        :param n: expected number of items
+        :return: extended or curtailed data
+        """
+        if len(data) == n:
+            return data
+        elif len(data) < n:
+            diff = n - len(data)
+            extra = [0 for _ in range(diff)]
+            return data + extra
+        elif len(data) > n:
+            return [data[i] for i in range(n)]
 
     def format_raw_line(self, props: List[str]) -> str:
         """

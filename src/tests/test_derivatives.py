@@ -67,7 +67,8 @@ def check_dSf_dVm(dSf_dVm1, br_idx, bus_idx, nc: NumericalCircuit):
                                    bus_indices=bus_idx,
                                    yff=adm.yff,
                                    yft=adm.yft,
-                                   V=nc.bus_data.Vbus,
+                                   Vm=np.abs(nc.bus_data.Vbus),
+                                   Va=np.angle(nc.bus_data.Vbus),
                                    F=nc.passive_branch_data.F,
                                    T=nc.passive_branch_data.T)
 
@@ -93,7 +94,6 @@ def check_dSf_dVa(dSf_dVa1, br_idx, bus_idx, nc: NumericalCircuit):
     dSf_dVa2 = cscdiff.dSf_dVa_csc(nbus=nc.nbus,
                                    br_indices=br_idx,
                                    bus_indices=bus_idx,
-                                   yff=adm.yff,
                                    yft=adm.yft,
                                    V=nc.bus_data.Vbus,
                                    F=nc.passive_branch_data.F,
@@ -123,7 +123,8 @@ def check_dSt_dVm(dSt_dVm1, br_idx, bus_idx, nc: NumericalCircuit):
                                    bus_indices=bus_idx,
                                    ytt=adm.ytt,
                                    ytf=adm.ytf,
-                                   V=nc.bus_data.Vbus,
+                                   Vm=np.abs(nc.bus_data.Vbus),
+                                   Va=np.angle(nc.bus_data.Vbus),
                                    F=nc.passive_branch_data.F,
                                    T=nc.passive_branch_data.T)
 
@@ -284,7 +285,6 @@ def test_tau_derivatives() -> None:
             F=nc.passive_branch_data.F,
             T=nc.passive_branch_data.T,
             Ys=Ys,
-            kconv=nc.passive_branch_data.k,
             tap=nc.active_branch_data.tap,
             V=nc.bus_data.Vbus
         )
@@ -305,7 +305,6 @@ def test_tau_derivatives() -> None:
                                          F=nc.passive_branch_data.F,
                                          T=nc.passive_branch_data.T,
                                          Ys=Ys,
-                                         kconv=nc.passive_branch_data.k,
                                          tap=nc.active_branch_data.tap,
                                          V=nc.bus_data.Vbus)
 
@@ -325,7 +324,6 @@ def test_tau_derivatives() -> None:
                                          F=nc.passive_branch_data.F,
                                          T=nc.passive_branch_data.T,
                                          Ys=Ys,
-                                         kconv=nc.passive_branch_data.k,
                                          tap=nc.active_branch_data.tap,
                                          V=nc.bus_data.Vbus)
 
@@ -380,7 +378,7 @@ def test_m_derivatives() -> None:
             F=nc.passive_branch_data.F,
             T=nc.passive_branch_data.T,
             Ys=Ys,
-            kconv=nc.passive_branch_data.k,
+            kconv=np.ones(nc.nbr),
             tap=nc.active_branch_data.tap,
             tap_module=nc.active_branch_data.tap_module,
             Bc=nc.passive_branch_data.B,
@@ -421,7 +419,6 @@ def test_m_derivatives() -> None:
             T=nc.passive_branch_data.T,
             Ys=Ys,
             Bc=nc.passive_branch_data.B,
-            kconv=nc.passive_branch_data.k,
             tap=nc.active_branch_data.tap,
             tap_module=nc.active_branch_data.tap_module,
             V=nc.bus_data.Vbus
@@ -437,7 +434,6 @@ def test_m_derivatives() -> None:
             T=nc.passive_branch_data.T,
             Ys=Ys,
             Bc=nc.passive_branch_data.B,
-            kconv=nc.passive_branch_data.k,
             tap=nc.active_branch_data.tap,
             tap_module=nc.active_branch_data.tap_module,
             V=nc.bus_data.Vbus
@@ -452,7 +448,6 @@ def test_m_derivatives() -> None:
             F=nc.passive_branch_data.F,
             T=nc.passive_branch_data.T,
             Ys=Ys,
-            kconv=nc.passive_branch_data.k,
             tap=nc.active_branch_data.tap,
             tap_module=nc.active_branch_data.tap_module,
             V=nc.bus_data.Vbus
@@ -502,7 +497,7 @@ def test_beq_derivatives() -> None:
             nbr=nc.nbr,
             iBeqx=m_idx,
             F=nc.passive_branch_data.F,
-            kconv=nc.passive_branch_data.k,
+            kconv=np.ones(nc.nbr),
             tap_module=nc.active_branch_data.tap_module,
             V=nc.bus_data.Vbus
         )
@@ -518,7 +513,7 @@ def test_beq_derivatives() -> None:
                                              bus_indices=bus_idx,
                                              beq_indices=m_idx,
                                              F=nc.passive_branch_data.F,
-                                             kconv=nc.passive_branch_data.k,
+                                             kconv=np.ones(nc.nbr),
                                              tap_module=nc.active_branch_data.tap_module,
                                              V=nc.bus_data.Vbus)
         dSbus_dbeq3 = dSbus_dbeq1[bus_idx, :]
@@ -528,7 +523,7 @@ def test_beq_derivatives() -> None:
                                          sf_indices=sf_idx,
                                          beq_indices=m_idx,
                                          F=nc.passive_branch_data.F,
-                                         kconv=nc.passive_branch_data.k,
+                                         kconv=np.ones(nc.nbr),
                                          tap_module=nc.active_branch_data.tap_module,
                                          V=nc.bus_data.Vbus)
         dSf_dbeq3 = dSf_dbeq1[sf_idx, :]

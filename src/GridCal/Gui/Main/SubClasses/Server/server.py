@@ -26,8 +26,10 @@ class ServerMain(BaseMainGui):
         BaseMainGui.__init__(self, parent=parent)
 
         # Server driver
-        self.server_driver: ServerDriver = ServerDriver(url="", port=0, pwd="")
+        self.server_driver: ServerDriver = ServerDriver(url="", port=0, pwd="", secure=False)
+        self.server_driver.connected_signal.connect(self.server_connected)
         self.server_driver.done_signal.connect(self.post_start_stop_server)  # connect the post function
+
         self.ui.server_tableView.setModel(self.server_driver.data_model)
 
         # menu
@@ -59,7 +61,8 @@ class ServerMain(BaseMainGui):
         return {"url": self.ui.server_url_lineEdit.text(),
                 "port": self.ui.server_port_spinBox.value(),
                 "user": "",
-                "pwd": self.ui.server_pwd_lineEdit.text()}
+                "pwd": self.ui.server_pwd_lineEdit.text(),
+                "secure": self.ui.secureServerConnectionCheckBox.isChecked(),}
 
     def save_server_config(self):
         """
@@ -79,6 +82,7 @@ class ServerMain(BaseMainGui):
         self.ui.server_port_spinBox.setValue(data.get("port", 8080))
         # "user": "",
         self.ui.server_pwd_lineEdit.setText(data.get("pwd", "1234"))
+        self.ui.secureServerConnectionCheckBox.setChecked(data.get("secure", True))
 
     def load_server_config(self) -> None:
         """
@@ -92,7 +96,7 @@ class ServerMain(BaseMainGui):
                 except json.decoder.JSONDecodeError as e:
                     print(e)
                     self.save_server_config()
-                    print("Server config file was erroneous, wrote a new one")
+                    self.show_error_toast("Server config file was erroneous, wrote a new one")
 
     def server_start_stop(self):
         """
@@ -105,6 +109,7 @@ class ServerMain(BaseMainGui):
             self.server_driver.set_values(url=self.ui.server_url_lineEdit.text().strip(),
                                           port=self.ui.server_port_spinBox.value(),
                                           pwd=self.ui.server_pwd_lineEdit.text().strip(),
+                                          secure=self.ui.secureServerConnectionCheckBox.isChecked(),
                                           status_func=self.ui.server_status_label.setText)
 
             # save the last server config
@@ -130,9 +135,17 @@ class ServerMain(BaseMainGui):
         :return:
         """
         if not self.server_driver.is_running():
-            if len(self.server_driver.logger):
-                warning_msg(text="Could not connect to the server", title="Server connection")
+            if self.server_driver.logger.has_logs():
+                self.show_error_toast(message="Could not connect to the server :/")
                 self.ui.actionEnable_server_mode.setChecked(False)
+
+    def server_connected(self):
+        """
+        Called upon server connection
+        :return:
+        """
+        self.show_info_toast(message="Connected!")
+
 
     def get_results(self):
         """
@@ -152,4 +165,4 @@ class ServerMain(BaseMainGui):
                                                 api_key="",
                                                 local_filename=job.id_tag + '.results')
 
-        print("Done")
+        self.show_info_toast("results received!")

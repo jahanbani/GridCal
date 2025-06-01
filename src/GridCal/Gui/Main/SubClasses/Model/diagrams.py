@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import os
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Callable
 
 import networkx as nx
 import numpy as np
@@ -34,14 +34,14 @@ from GridCal.Gui.Diagrams.SchematicWidget.schematic_widget import (SchematicWidg
                                                                    generate_schematic_diagram,
                                                                    make_vicinity_diagram)
 from GridCal.Gui.Diagrams.MapWidget.grid_map_widget import GridMapWidget, generate_map_diagram
+from GridCal.Gui.Diagrams.base_diagram_widget import BaseDiagramWidget
 from GridCal.Gui.Diagrams.diagrams_model import DiagramsModel
 from GridCal.Gui.messages import yes_no_question, error_msg, info_msg
 from GridCal.Gui.Main.SubClasses.Model.compiled_arrays import CompiledArraysMain
 from GridCal.Gui.Main.object_select_window import ObjectSelectWindow
-from GridCal.Gui.Diagrams.MapWidget.Tiles.TileProviders.blue_marble import BlueMarbleTiles
 from GridCal.Gui.Diagrams.MapWidget.Tiles.TileProviders.cartodb import CartoDbTiles
 
-ALL_EDITORS = Union[SchematicWidget, GridMapWidget]
+ALL_EDITORS = Union[SchematicWidget, GridMapWidget, BaseDiagramWidget]
 ALL_EDITORS_NONE = Union[None, SchematicWidget, GridMapWidget]
 
 
@@ -53,9 +53,9 @@ class VideoExportWorker(QtCore.QThread):
     progress_text = QtCore.Signal(str)
     done_signal = QtCore.Signal()
 
-    def __init__(self, filename, diagram: SchematicWidget | GridMapWidget,
+    def __init__(self, filename, diagram: ALL_EDITORS,
                  fps: int, start_idx: int, end_idx: int, current_study: str,
-                 grid_colour_function):
+                 grid_colour_function: Callable[[ALL_EDITORS, str, int, bool], None], ):
         """
 
         :param filename:
@@ -74,7 +74,7 @@ class VideoExportWorker(QtCore.QThread):
         self.start_idx = start_idx
         self.end_idx = end_idx
         self.current_study = current_study
-        self.grid_colour_function = grid_colour_function
+        self.grid_colour_function: Callable[[ALL_EDITORS, str, int, bool], None] = grid_colour_function
 
         self.logger = Logger()
 
@@ -88,10 +88,12 @@ class VideoExportWorker(QtCore.QThread):
 
         # paint and capture
         for t_idx in range(self.start_idx, self.end_idx):
-            self.grid_colour_function(diagram=self.diagram,
-                                      current_study=self.current_study,
-                                      t_idx=t_idx,
-                                      allow_popups=False)
+            self.grid_colour_function(
+                self.diagram,  # diagram
+                self.current_study,  # current_study
+                t_idx,  # t_idx
+                False  # allow_popups
+            )
 
             self.diagram.capture_video_frame(w=w, h=h, logger=self.logger)
 
@@ -139,11 +141,6 @@ class DiagramsMain(CompiledArraysMain):
 
         # map tile sources
         self.tile_sources = [
-            BlueMarbleTiles(
-                name='Blue Marble',
-                tiles_dir=os.path.join(tiles_path(), 'blue_marble')
-            ),
-
             # Carto layers:
             # light_all,
             # dark_all,
@@ -174,7 +171,8 @@ class DiagramsMain(CompiledArraysMain):
             CartoDbTiles(
                 name='Open Street Map',
                 tiles_dir=os.path.join(tiles_path(), 'osm'),
-                tile_servers=["https://tile.openstreetmap.org"]
+                tile_servers=["https://tile.openstreetmap.org"],
+                max_zoom=21
             ),
             # OimTiles(
             #     name='Open infra Map',
@@ -227,8 +225,7 @@ class DiagramsMain(CompiledArraysMain):
         # --------------------------------------------------------------------------------------------------------------
         self.ui.actionTakePicture.triggered.connect(self.take_picture)
         self.ui.actionRecord_video.triggered.connect(self.record_video)
-        self.ui.actionDelete_selected.triggered.connect(self.delete_selected_from_the_diagram_and_db)
-        self.ui.actionDelete_from_the_diagram.triggered.connect(self.delete_selected_from_the_diagram)
+        self.ui.actionDelete_selected.triggered.connect(self.delete_selected_diagram_widgets)
         self.ui.actionTry_to_fix_buses_location.triggered.connect(self.try_to_fix_buses_location)
         self.ui.actionSet_schematic_positions_from_GPS_coordinates.triggered.connect(self.set_xy_from_lat_lon)
         self.ui.actionSetSelectedBusCountry.triggered.connect(lambda: self.set_selected_bus_property('country'))
@@ -255,10 +252,17 @@ class DiagramsMain(CompiledArraysMain):
         self.ui.actionDisable_all_results_tags.triggered.connect(self.disable_all_results_tags)
         self.ui.actionEnable_all_results_tags.triggered.connect(self.enable_all_results_tags)
         self.ui.actionConsolidate_diagram_coordinates.triggered.connect(self.consolidate_diagram_coordinates)
+        self.ui.actionReset_coordinates.triggered.connect(self.reset_diagram_coordinates)
+        self.ui.actionRotate.triggered.connect(self.rotate)
 
         # Buttons
         self.ui.colour_results_pushButton.clicked.connect(self.colour_diagrams)
         self.ui.redraw_pushButton.clicked.connect(self.redraw_current_diagram)
+
+        self.ui.preset1_pushButton.clicked.connect(self.preset_1)
+        self.ui.preset2_pushButton.clicked.connect(self.preset_2)
+        self.ui.preset3_pushButton.clicked.connect(self.preset_3)
+        self.ui.preset4_pushButton.clicked.connect(self.preset_4)
 
         # list clicks
         self.ui.diagramsListView.clicked.connect(self.set_selected_diagram_on_click)
@@ -279,15 +283,15 @@ class DiagramsMain(CompiledArraysMain):
         self.ui.explosion_factor_doubleSpinBox.valueChanged.connect(self.explosion_factor_change)
         self.ui.defaultBusVoltageSpinBox.valueChanged.connect(self.default_voltage_change)
 
-        self.ui.min_branch_size_spinBox.valueChanged.connect(self.set_diagrams_size_contraints)
-        self.ui.max_branch_size_spinBox.valueChanged.connect(self.set_diagrams_size_contraints)
-        self.ui.min_node_size_spinBox.valueChanged.connect(self.set_diagrams_size_contraints)
-        self.ui.max_node_size_spinBox.valueChanged.connect(self.set_diagrams_size_contraints)
-        self.ui.arrow_size_size_spinBox.valueChanged.connect(self.set_diagrams_size_contraints)
+        self.ui.min_branch_size_spinBox.valueChanged.connect(self.set_diagrams_size_constraints)
+        self.ui.max_branch_size_spinBox.valueChanged.connect(self.set_diagrams_size_constraints)
+        self.ui.min_node_size_spinBox.valueChanged.connect(self.set_diagrams_size_constraints)
+        self.ui.max_node_size_spinBox.valueChanged.connect(self.set_diagrams_size_constraints)
+        self.ui.arrow_size_size_spinBox.valueChanged.connect(self.set_diagrams_size_constraints)
 
         # check boxes
-        self.ui.branch_width_based_on_flow_checkBox.clicked.connect(self.set_diagrams_size_contraints)
-
+        self.ui.branch_width_based_on_flow_checkBox.clicked.connect(self.set_diagrams_size_constraints)
+        self.ui.use_schematic_objects_color_checkBox.clicked.connect(self.re_colour_schematic)
         # context menu
         self.ui.diagramsListView.customContextMenuRequested.connect(self.show_diagrams_context_menu)
 
@@ -359,16 +363,19 @@ class DiagramsMain(CompiledArraysMain):
         Center the nodes in the screen
         """
 
-        diagram = self.get_selected_diagram_widget()
-        if diagram is not None:
-            if isinstance(diagram, SchematicWidget):
+        widget = self.get_selected_diagram_widget()
+        if widget is not None:
+            if isinstance(widget, SchematicWidget):
                 selected = self.get_selected_buses()
 
                 if len(selected) == 0:
-                    diagram.center_nodes(elements=None)
+                    widget.center_nodes(elements=None)
                 else:
                     buses = [bus for i, bus, graphic in selected]
-                    diagram.center_nodes(elements=buses)
+                    widget.center_nodes(elements=buses)
+
+            elif isinstance(widget, GridMapWidget):
+                widget.center()
 
     def get_selected_buses(self) -> List[Tuple[int, dev.Bus, BusGraphicItem]]:
         """
@@ -442,11 +449,11 @@ class DiagramsMain(CompiledArraysMain):
                     self.setup_sim_indices(st=self.start_end_dialogue_window.start_value,
                                            en=self.start_end_dialogue_window.end_value)
             else:
-                info_msg("Empty time series :/")
+                self.show_error_toast("Empty time series :/")
         else:
-            info_msg("There are no time series :/")
+            self.show_error_toast("There are no time series :/")
 
-    def pf_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def pf_colouring(self, diagram_widget: ALL_EDITORS,
                      results: PowerFlowResults, cmap: Colormaps,
                      use_flow_based_width: bool = False,
                      min_branch_width: int = 2,
@@ -500,7 +507,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def pf_ts_colouring(self, t_idx: int,
-                        diagram_widget: Union[SchematicWidget, GridMapWidget],
+                        diagram_widget: ALL_EDITORS,
                         results: PowerFlowTimeSeriesResults, cmap: Colormaps,
                         use_flow_based_width: bool = False,
                         min_branch_width: int = 2,
@@ -546,7 +553,7 @@ class DiagramsMain(CompiledArraysMain):
                                              max_bus_width=max_bus_width,
                                              cmap=cmap)
 
-    def cpf_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def cpf_colouring(self, diagram_widget: ALL_EDITORS,
                       results: ContinuationPowerFlowResults, cmap: Colormaps,
                       use_flow_based_width: bool = False,
                       min_branch_width: int = 2,
@@ -570,27 +577,28 @@ class DiagramsMain(CompiledArraysMain):
         hvdc_active = self.circuit.get_hvdc_actives(t_idx=None)
         vsc_active = self.circuit.get_vsc_actives(t_idx=None)
 
-        return diagram_widget.colour_results(Sbus=results.Sbus[-1, :],
-                                             bus_active=bus_active,
-                                             Sf=results.Sf[-1, :],
-                                             St=results.St[-1, :],
-                                             voltages=results.voltages[-1, :],
-                                             types=results.bus_types,
-                                             loadings=np.abs(results.loading[-1, :]),
-                                             br_active=br_active,
-                                             hvdc_Pf=None,
-                                             hvdc_Pt=None,
-                                             hvdc_losses=None,
-                                             hvdc_loading=None,
-                                             hvdc_active=hvdc_active,
-                                             use_flow_based_width=use_flow_based_width,
-                                             min_branch_width=min_branch_width,
-                                             max_branch_width=max_branch_width,
-                                             min_bus_width=min_bus_width,
-                                             max_bus_width=max_bus_width,
-                                             cmap=cmap)
+        if results.Sbus.shape[0] > 0:
+            return diagram_widget.colour_results(Sbus=results.Sbus[-1, :],
+                                                 bus_active=bus_active,
+                                                 Sf=results.Sf[-1, :],
+                                                 St=results.St[-1, :],
+                                                 voltages=results.voltages[-1, :],
+                                                 types=results.bus_types,
+                                                 loadings=np.abs(results.loading[-1, :]),
+                                                 br_active=br_active,
+                                                 hvdc_Pf=None,
+                                                 hvdc_Pt=None,
+                                                 hvdc_losses=None,
+                                                 hvdc_loading=None,
+                                                 hvdc_active=hvdc_active,
+                                                 use_flow_based_width=use_flow_based_width,
+                                                 min_branch_width=min_branch_width,
+                                                 max_branch_width=max_branch_width,
+                                                 min_bus_width=min_bus_width,
+                                                 max_bus_width=max_bus_width,
+                                                 cmap=cmap)
 
-    def spf_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def spf_colouring(self, diagram_widget: ALL_EDITORS,
                       results: sim.StochasticPowerFlowResults, cmap: Colormaps,
                       use_flow_based_width: bool = False,
                       min_branch_width: int = 2,
@@ -634,7 +642,7 @@ class DiagramsMain(CompiledArraysMain):
                                              max_bus_width=max_bus_width,
                                              cmap=cmap)
 
-    def sc_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def sc_colouring(self, diagram_widget: ALL_EDITORS,
                      results: sim.ShortCircuitResults, cmap: Colormaps,
                      use_flow_based_width: bool = False,
                      min_branch_width: int = 2,
@@ -678,7 +686,7 @@ class DiagramsMain(CompiledArraysMain):
                                              max_bus_width=max_bus_width,
                                              cmap=cmap)
 
-    def opf_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def opf_colouring(self, diagram_widget: ALL_EDITORS,
                       results: sim.OptimalPowerFlowResults, cmap: Colormaps,
                       use_flow_based_width: bool = False,
                       min_branch_width: int = 2,
@@ -707,13 +715,22 @@ class DiagramsMain(CompiledArraysMain):
                                              bus_active=bus_active,
                                              loadings=results.loading,
                                              types=results.bus_types,
+
                                              Sf=results.Sf,
                                              St=results.St,
                                              br_active=br_active,
+
                                              hvdc_Pf=results.hvdc_Pf,
                                              hvdc_Pt=-results.hvdc_Pf,
                                              hvdc_loading=results.hvdc_loading,
                                              hvdc_active=hvdc_active,
+
+                                             vsc_Pf=results.vsc_Pf,
+                                             vsc_Pt=-results.vsc_Pf,
+                                             vsc_Qt=np.zeros_like(results.vsc_Pf),
+                                             vsc_loading=results.vsc_loading,
+                                             vsc_active=vsc_active,
+
                                              fluid_node_p2x_flow=results.fluid_node_p2x_flow,
                                              fluid_node_current_level=results.fluid_node_current_level,
                                              fluid_node_spillage=results.fluid_node_spillage,
@@ -729,7 +746,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def opf_ts_colouring(self, t_idx: int,
-                         diagram_widget: Union[SchematicWidget, GridMapWidget],
+                         diagram_widget: ALL_EDITORS,
                          results: sim.OptimalPowerFlowTimeSeriesResults,
                          cmap: Colormaps,
                          use_flow_based_width: bool = False,
@@ -781,7 +798,7 @@ class DiagramsMain(CompiledArraysMain):
                                              max_bus_width=max_bus_width,
                                              cmap=cmap)
 
-    def ntc_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def ntc_colouring(self, diagram_widget: ALL_EDITORS,
                       results: sim.OptimalNetTransferCapacityResults, cmap: Colormaps,
                       use_flow_based_width: bool = False,
                       min_branch_width: int = 2,
@@ -825,7 +842,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def ntc_ts_colouring(self, t_idx: int,
-                         diagram_widget: Union[SchematicWidget, GridMapWidget],
+                         diagram_widget: ALL_EDITORS,
                          results: sim.OptimalNetTransferCapacityTimeSeriesResults,
                          cmap: Colormaps,
                          use_flow_based_width: bool = False,
@@ -871,7 +888,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def nc_ts_colouring(self, t_idx: int | None,
-                        diagram_widget: Union[SchematicWidget, GridMapWidget],
+                        diagram_widget: ALL_EDITORS,
                         results: sim.NodalCapacityTimeSeriesResults,
                         cmap: Colormaps,
                         use_flow_based_width: bool = False,
@@ -917,7 +934,7 @@ class DiagramsMain(CompiledArraysMain):
                                              max_bus_width=max_bus_width,
                                              cmap=cmap)
 
-    def linpf_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def linpf_colouring(self, diagram_widget: ALL_EDITORS,
                         results: sim.LinearAnalysisResults, cmap: Colormaps,
                         use_flow_based_width: bool = False,
                         min_branch_width: int = 2,
@@ -961,7 +978,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def linpf_ts_colouring(self, t_idx: int,
-                           diagram_widget: Union[SchematicWidget, GridMapWidget],
+                           diagram_widget: ALL_EDITORS,
                            results: sim.LinearAnalysisTimeSeriesResults,
                            cmap: Colormaps,
                            use_flow_based_width: bool = False,
@@ -1003,7 +1020,7 @@ class DiagramsMain(CompiledArraysMain):
                                              max_bus_width=max_bus_width,
                                              cmap=cmap)
 
-    def con_colouring(self, diagram_widget: Union[SchematicWidget, GridMapWidget],
+    def con_colouring(self, diagram_widget: ALL_EDITORS,
                       results: sim.ContingencyAnalysisResults, cmap: Colormaps,
                       use_flow_based_width: bool = False,
                       min_branch_width: int = 2,
@@ -1044,7 +1061,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def con_ts_colouring(self, t_idx: int,
-                         diagram_widget: Union[SchematicWidget, GridMapWidget],
+                         diagram_widget: ALL_EDITORS,
                          results: sim.ContingencyAnalysisTimeSeriesResults,
                          cmap: Colormaps,
                          use_flow_based_width: bool = False,
@@ -1087,7 +1104,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def default_colouring(self, t_idx: int | None,
-                          diagram_widget: Union[SchematicWidget, GridMapWidget],
+                          diagram_widget: ALL_EDITORS,
                           cmap: Colormaps,
                           use_flow_based_width: bool = False,
                           min_branch_width: int = 2,
@@ -1130,7 +1147,7 @@ class DiagramsMain(CompiledArraysMain):
                                              cmap=cmap)
 
     def grid_colour_function(self,
-                             diagram_widget: Union[SchematicWidget, GridMapWidget],
+                             diagram_widget: ALL_EDITORS,
                              current_study: str,
                              t_idx: Union[None, int],
                              allow_popups: bool = True) -> None:
@@ -1454,6 +1471,19 @@ class DiagramsMain(CompiledArraysMain):
                                               t_idx=t_idx,
                                               allow_popups=allow_popups)
 
+    def re_colour_schematic(self):
+        """
+        Recolour a schematic
+        """
+        diagram_widget = self.get_selected_diagram_widget()
+
+        use_api_color = self.ui.use_schematic_objects_color_checkBox.isChecked()
+
+        if diagram_widget:
+
+            if isinstance(diagram_widget, SchematicWidget):
+                diagram_widget.recolour(use_api_color=use_api_color)
+
     def set_diagrams_list_view(self) -> None:
         """
         Create the diagrams list view
@@ -1487,8 +1517,7 @@ class DiagramsMain(CompiledArraysMain):
                                          diagram=diagram,
                                          default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
                                          time_index=self.get_diagram_slider_index(),
-                                         prefer_node_breaker=False,
-                                         call_delete_db_element_func=self.call_delete_db_element)
+                                         prefer_node_breaker=False)
 
         diagram_widget.setStretchFactor(1, 10)
         diagram_widget.center_nodes()
@@ -1510,7 +1539,7 @@ class DiagramsMain(CompiledArraysMain):
                 # set pointer to the circuit
                 diagram = generate_schematic_diagram(buses=self.circuit.get_buses(),
                                                      busbars=self.circuit.get_bus_bars(),
-                                                     connecivity_nodes=self.circuit.get_connectivity_nodes(),
+                                                     connectivity_nodes=self.circuit.get_connectivity_nodes(),
                                                      lines=self.circuit.get_lines(),
                                                      dc_lines=self.circuit.get_dc_lines(),
                                                      transformers2w=self.circuit.get_transformers2w(),
@@ -1534,7 +1563,7 @@ class DiagramsMain(CompiledArraysMain):
 
     def set_selected_diagram_on_click(self):
         """
-        on list-view click, set the currentlt selected diagram widget
+        on list-view click, set the currently selected diagram widget
         """
         diagram = self.get_selected_diagram_widget()
 
@@ -1551,7 +1580,7 @@ class DiagramsMain(CompiledArraysMain):
         """
         diagram = generate_schematic_diagram(buses=self.circuit.get_buses(),
                                              busbars=self.circuit.get_bus_bars(),
-                                             connecivity_nodes=self.circuit.get_connectivity_nodes(),
+                                             connectivity_nodes=self.circuit.get_connectivity_nodes(),
                                              lines=self.circuit.get_lines(),
                                              dc_lines=self.circuit.get_dc_lines(),
                                              transformers2w=self.circuit.get_transformers2w(),
@@ -1574,8 +1603,7 @@ class DiagramsMain(CompiledArraysMain):
                                          diagram=diagram,
                                          default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
                                          time_index=self.get_diagram_slider_index(),
-                                         prefer_node_breaker=prefer_node_breaker,
-                                         call_delete_db_element_func=self.call_delete_db_element)
+                                         prefer_node_breaker=prefer_node_breaker)
 
         diagram_widget.setStretchFactor(1, 10)
         diagram_widget.center_nodes()
@@ -1601,22 +1629,30 @@ class DiagramsMain(CompiledArraysMain):
         """
         Add a bus-branch diagram of a particular selection of objects
         """
-        diagram_widget = self.get_selected_diagram_widget()
+        widget = self.get_selected_diagram_widget()
 
-        if diagram_widget:
+        if widget:
 
-            if isinstance(diagram_widget, SchematicWidget):
-                diagram = diagram_widget.create_schematic_from_selection()
+            if isinstance(widget, SchematicWidget):
+                diagram = widget.create_schematic_from_selection()
 
-                diagram_widget = SchematicWidget(gui=self,
-                                                 circuit=self.circuit,
-                                                 diagram=diagram,
-                                                 default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
-                                                 time_index=self.get_diagram_slider_index(),
-                                                 call_delete_db_element_func=self.call_delete_db_element)
+                widget = SchematicWidget(gui=self,
+                                         circuit=self.circuit,
+                                         diagram=diagram,
+                                         default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
+                                         time_index=self.get_diagram_slider_index())
 
-                self.add_diagram_widget_and_diagram(diagram_widget=diagram_widget, diagram=diagram)
+                self.add_diagram_widget_and_diagram(diagram_widget=widget, diagram=diagram)
                 self.set_diagrams_list_view()
+
+            elif isinstance(widget, GridMapWidget):
+                substation_graphics = widget.get_selected_substations()
+
+                substations = list()
+                for graphic_obj in substation_graphics:
+                    substations.append(graphic_obj.api_object)
+
+                self.new_bus_branch_diagram_from_substation(substations=substations)
 
     def add_bus_vicinity_diagram_from_model(self):
         """
@@ -1673,6 +1709,18 @@ class DiagramsMain(CompiledArraysMain):
                     elif isinstance(sel_obj, dev.Switch):
                         root_bus = sel_obj.bus_from
 
+                    elif isinstance(sel_obj, dev.VoltageLevel):
+                        root_bus = None
+                        buses = self.circuit.get_voltage_level_buses(vl=sel_obj)
+                        if len(buses) > 0:
+                            root_bus = buses[0]
+
+                    elif isinstance(sel_obj, dev.Substation):
+                        root_bus = None
+                        buses = self.circuit.get_substation_buses(substation=sel_obj)
+                        if len(buses) > 0:
+                            root_bus = buses[0]
+
                     else:
                         root_bus = None
 
@@ -1692,12 +1740,19 @@ class DiagramsMain(CompiledArraysMain):
                                                              circuit=self.circuit,
                                                              diagram=diagram,
                                                              default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
-                                                             time_index=self.get_diagram_slider_index(),
-                                                             call_delete_db_element_func=self.call_delete_db_element)
+                                                             time_index=self.get_diagram_slider_index())
 
                             self.add_diagram_widget_and_diagram(diagram_widget=diagram_widget,
                                                                 diagram=diagram)
                             self.set_diagrams_list_view()
+
+                            self.show_info_toast(f"{diagram.name} added")
+                    else:
+                        self.show_error_toast(f"Could not find any bus")
+                else:
+                    self.show_error_toast(f"No elements selected")
+            else:
+                self.show_error_toast(f"No object selected")
 
     def new_bus_branch_diagram_from_bus(self, root_bus: dev.Bus):
         """
@@ -1717,38 +1772,55 @@ class DiagramsMain(CompiledArraysMain):
                                              circuit=self.circuit,
                                              diagram=diagram,
                                              default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
-                                             time_index=self.get_diagram_slider_index(),
-                                             call_delete_db_element_func=self.call_delete_db_element)
+                                             time_index=self.get_diagram_slider_index())
 
             self.add_diagram_widget_and_diagram(diagram_widget=diagram_widget, diagram=diagram)
             self.set_diagrams_list_view()
+            self.show_info_toast(f"{diagram.name} added")
 
-    def new_bus_branch_diagram_from_substation(self, substation: dev.Substation):
+    def new_bus_branch_diagram_from_substation(self, substations: List[dev.Substation]):
         """
         Add a bus-branch diagram of a particular selection of objects
         """
 
-        buses = self.circuit.get_substation_buses(substation=substation)
+        if len(substations) == 0:
+            info_msg(text="No substations selected. PLese select some substations",
+                     title="Substations schematic")
+            return
+
+        buses = list()
+        for substation in substations:
+            buses += self.circuit.get_substation_buses(substation=substation)
 
         if len(buses):
-            diagram = make_vicinity_diagram(circuit=self.circuit,
-                                            root_bus=buses[0],
-                                            max_level=2,
-                                            prog_func=None,
-                                            text_func=None)
+            diagram = make_vicinity_diagram(
+                circuit=self.circuit,
+                root_bus=buses[0],
+                max_level=2,
+                prog_func=None,
+                text_func=None,
+                name=substations[0].name if len(substations) == 1 else "substations diagram"
+            )
 
-            diagram_widget = SchematicWidget(gui=self,
-                                             circuit=self.circuit,
-                                             diagram=diagram,
-                                             default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
-                                             time_index=self.get_diagram_slider_index(),
-                                             call_delete_db_element_func=self.call_delete_db_element)
+            diagram_widget = SchematicWidget(
+                gui=self,
+                circuit=self.circuit,
+                diagram=diagram,
+                default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
+                time_index=self.get_diagram_slider_index()
+            )
 
             self.add_diagram_widget_and_diagram(diagram_widget=diagram_widget, diagram=diagram)
             self.set_diagrams_list_view()
+            self.show_info_toast(f"{diagram.name} added")
+
         else:
-            info_msg(text=f"No buses were found associated with the substation {substation.name}",
-                     title="New schematic from substation")
+            if len(substations) == 1:
+                info_msg(text=f"No buses were found associated with the substation {substations[0].name}",
+                         title="New schematic from substation")
+            else:
+                info_msg(text=f"No buses were found associated with the substations",
+                         title="New schematic from substation")
 
     def create_circuit_stored_diagrams(self):
         """
@@ -1765,8 +1837,7 @@ class DiagramsMain(CompiledArraysMain):
                                                  circuit=self.circuit,
                                                  diagram=diagram,
                                                  default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value(),
-                                                 time_index=self.get_diagram_slider_index(),
-                                                 call_delete_db_element_func=self.call_delete_db_element)
+                                                 time_index=self.get_diagram_slider_index())
 
                 diagram_widget.setStretchFactor(1, 10)
                 diagram_widget.center_nodes()
@@ -1774,8 +1845,8 @@ class DiagramsMain(CompiledArraysMain):
 
             elif isinstance(diagram, dev.MapDiagram):
                 # select the tile source from the diagram, if not fund pick the one from the GUI
-                defualt_tile_source = self.tile_name_dict[self.ui.tile_provider_comboBox.currentText()]
-                tile_source = self.tile_name_dict.get(diagram.tile_source, defualt_tile_source)
+                default_tile_source = self.tile_name_dict[self.ui.tile_provider_comboBox.currentText()]
+                tile_source = self.tile_name_dict.get(diagram.tile_source, default_tile_source)
 
                 # create the map widget
                 map_widget = GridMapWidget(
@@ -1786,9 +1857,7 @@ class DiagramsMain(CompiledArraysMain):
                     latitude=diagram.latitude,
                     name=diagram.name,
                     circuit=self.circuit,
-                    diagram=diagram,
-                    call_delete_db_element_func=self.call_delete_db_element,
-                    call_new_substation_diagram_func=self.new_bus_branch_diagram_from_substation
+                    diagram=diagram
                 )
 
                 # map_widget.go_to_level_and_position(5, -15.41, 40.11)
@@ -1814,16 +1883,29 @@ class DiagramsMain(CompiledArraysMain):
             ok = True
 
         if ok:
-            diagram = generate_map_diagram(substations=self.circuit.get_substations(),
-                                           voltage_levels=self.circuit.get_voltage_levels(),
-                                           lines=self.circuit.get_lines(),
-                                           dc_lines=self.circuit.get_dc_lines(),
-                                           hvdc_lines=self.circuit.get_hvdc(),
-                                           fluid_nodes=self.circuit.get_fluid_nodes(),
-                                           fluid_paths=self.circuit.get_fluid_paths(),
-                                           prog_func=None,
-                                           text_func=None,
-                                           name='Map diagram')
+            cmap_text = self.ui.palette_comboBox.currentText()
+            cmap = self.cmap_dict[cmap_text]
+
+            diagram = generate_map_diagram(
+                substations=self.circuit.get_substations(),
+                voltage_levels=self.circuit.get_voltage_levels(),
+                lines=self.circuit.get_lines(),
+                dc_lines=self.circuit.get_dc_lines(),
+                hvdc_lines=self.circuit.get_hvdc(),
+                fluid_nodes=self.circuit.get_fluid_nodes(),
+                fluid_paths=self.circuit.get_fluid_paths(),
+                prog_func=None,
+                text_func=None,
+                name='Map diagram',
+                use_flow_based_width=self.ui.branch_width_based_on_flow_checkBox.isChecked(),
+                min_branch_width=self.ui.min_branch_size_spinBox.value(),
+                max_branch_width=self.ui.max_branch_size_spinBox.value(),
+                min_bus_width=self.ui.min_node_size_spinBox.value(),
+                max_bus_width=self.ui.max_node_size_spinBox.value(),
+                arrow_size=self.ui.arrow_size_size_spinBox.value(),
+                palette=cmap,
+                default_bus_voltage=self.ui.defaultBusVoltageSpinBox.value()
+            )
 
             # set other default properties of the diagram
             diagram.tile_source = self.ui.tile_provider_comboBox.currentText()
@@ -1842,13 +1924,12 @@ class DiagramsMain(CompiledArraysMain):
                                    latitude=diagram.latitude,
                                    name=diagram.name,
                                    circuit=self.circuit,
-                                   diagram=diagram,
-                                   call_delete_db_element_func=self.call_delete_db_element,
-                                   call_new_substation_diagram_func=self.new_bus_branch_diagram_from_substation)
+                                   diagram=diagram)
 
         self.add_diagram_widget_and_diagram(diagram_widget=map_widget, diagram=diagram)
         self.set_diagrams_list_view()
         self.set_diagram_widget(widget=map_widget)
+        self.show_info_toast(f"{diagram.name} added")
 
     def add_diagram_widget_and_diagram(self,
                                        diagram_widget: ALL_EDITORS,
@@ -1871,17 +1952,17 @@ class DiagramsMain(CompiledArraysMain):
         """
         diagram_widget = self.get_selected_diagram_widget()
         if diagram_widget is not None:
-            ok = yes_no_question("Are you sure that you want to remove " + diagram_widget.name + "?",
+            ok = yes_no_question("Are you sure that you want to delete " + diagram_widget.name + "?",
                                  "Remove diagram")
 
             if ok:
-                # remove the widget
+                # delete the widget
                 self.diagram_widgets_list.remove(diagram_widget)
 
-                # remove the diagram
+                # delete the diagram
                 self.circuit.remove_diagram(diagram_widget.diagram)
 
-                # remove it from the layout list
+                # delete it from the layout list
                 self.remove_all_diagram_widgets()
 
                 # update view
@@ -1916,15 +1997,15 @@ class DiagramsMain(CompiledArraysMain):
         """
         Remove all diagram widgets from the container
         """
-        # remove all widgets from the layout
+        # delete all widgets from the layout
         for i in reversed(range(self.ui.schematic_layout.count())):
             # get the widget
             widget_to_remove = self.ui.schematic_layout.itemAt(i).widget()
 
-            # remove it from the layout list
+            # delete it from the layout list
             self.ui.schematic_layout.removeWidget(widget_to_remove)
 
-            # remove it from the gui
+            # delete it from the gui
             widget_to_remove.setParent(None)
 
     def set_diagram_widget(self, widget: ALL_EDITORS):
@@ -1953,6 +2034,8 @@ class DiagramsMain(CompiledArraysMain):
         self.ui.max_branch_size_spinBox.setValue(widget.diagram.max_branch_width)
         self.ui.min_node_size_spinBox.setValue(widget.diagram.min_bus_width)
         self.ui.max_node_size_spinBox.setValue(widget.diagram.max_bus_width)
+        self.ui.arrow_size_size_spinBox.setValue(widget.diagram.arrow_size)
+        self.ui.use_schematic_objects_color_checkBox.setChecked(widget.diagram.use_api_colors)
         self.ui.palette_comboBox.setCurrentIndex(self.cmap_index_dict.get(widget.diagram.palette, 0))
 
         if isinstance(widget, GridMapWidget):
@@ -2099,12 +2182,12 @@ class DiagramsMain(CompiledArraysMain):
                         self.video_thread.progress_signal.connect(self.ui.progressBar.setValue)
                         self.video_thread.progress_text.connect(self.ui.progress_label.setText)
                         self.video_thread.done_signal.connect(self.post_video_export)
-                        self.video_thread.run()  # we cannot run another thread accesing the main thread objects...
+                        self.video_thread.run()  # we cannot run another thread accessing the main thread objects...
             else:
-                info_msg("There is not diagram selected", "Record video")
+                self.show_error_toast("There is no diagram selected")
 
         else:
-            info_msg("There are no time series", "Record video")
+            self.show_error_toast("There are no time series")
 
     def post_video_export(self):
         """
@@ -2113,7 +2196,7 @@ class DiagramsMain(CompiledArraysMain):
         """
         if self.video_thread.logger.has_logs():
             dlg = LogsDialogue("Video export", self.video_thread.logger, True)
-            dlg.exec_()
+            dlg.exec()
 
     def set_xy_from_lat_lon(self):
         """
@@ -2173,24 +2256,29 @@ class DiagramsMain(CompiledArraysMain):
 
     def delete_selected_from_the_diagram(self):
         """
-        Prompt to delete the selected buses from the current diagram
+        Prompt to delete_with_dialogue the selected buses from the current diagram
         """
 
         diagram_widget = self.get_selected_diagram_widget()
         if isinstance(diagram_widget, SchematicWidget):
-            diagram_widget.delete_Selected_from_widget()
-        else:
-            pass
+            diagram_widget.delete_selected_from_widget(delete_from_db=False)
 
-    def delete_selected_from_the_diagram_and_db(self):
+        elif isinstance(diagram_widget, GridMapWidget):
+            diagram_widget.delete_selected_from_widget(delete_from_db=False)
+
+    def delete_selected_diagram_widgets(self):
         """
-        Prompt to delete the selected elements from the current diagram and database
+        Prompt to delete the selected elements from the current diagram and (optionally) the database
         """
         diagram_widget = self.get_selected_diagram_widget()
         if isinstance(diagram_widget, SchematicWidget):
-            diagram_widget.delete_Selected_from_widget_and_db()
+            diagram_widget.delete_selected_from_widget(delete_from_db=True)
+
+        elif isinstance(diagram_widget, GridMapWidget):
+            diagram_widget.delete_selected_from_widget(delete_from_db=True)
+
         else:
-            pass
+            self.show_error_toast("delete_selected_diagram_widgets: Unsupported widget :(")
 
     def try_to_fix_buses_location(self):
         """
@@ -2213,7 +2301,7 @@ class DiagramsMain(CompiledArraysMain):
         diagram = self.get_selected_diagram_widget()
 
         if isinstance(diagram, SchematicWidget):
-            lst = diagram.get_selection_api_objects()
+            lst = diagram._get_selection_api_objects()
         elif isinstance(diagram, GridMapWidget):
             lst = list()
         else:
@@ -2239,7 +2327,7 @@ class DiagramsMain(CompiledArraysMain):
                                                                  group_label="Contingency name",
                                                                  group_text=group_text)
                 self.contingency_checks_diag.setModal(True)
-                self.contingency_checks_diag.exec_()
+                self.contingency_checks_diag.exec()
 
                 if self.contingency_checks_diag.is_accepted:
 
@@ -2250,7 +2338,7 @@ class DiagramsMain(CompiledArraysMain):
 
                     for i in self.contingency_checks_diag.selected_indices:
                         elm = selected[i]
-                        con = dev.Contingency(device_idtag=elm.idtag,
+                        con = dev.Contingency(device=elm,
                                               code=elm.code,
                                               name="Contingency " + elm.name,
                                               prop=ContingencyOperationTypes.Active,
@@ -2278,7 +2366,7 @@ class DiagramsMain(CompiledArraysMain):
                                                         group_label="Remedial action name",
                                                         group_text=group_text)
                 self.ra_checks_diag.setModal(True)
-                self.ra_checks_diag.exec_()
+                self.ra_checks_diag.exec()
 
                 if self.ra_checks_diag.is_accepted:
 
@@ -2289,7 +2377,7 @@ class DiagramsMain(CompiledArraysMain):
 
                     for i in self.ra_checks_diag.selected_indices:
                         elm = selected[i]
-                        ra = dev.RemedialAction(device_idtag=elm.idtag,
+                        ra = dev.RemedialAction(device=elm,
                                                 code=elm.code,
                                                 name="RA " + elm.name,
                                                 prop=ContingencyOperationTypes.Active,
@@ -2312,7 +2400,7 @@ class DiagramsMain(CompiledArraysMain):
 
                 group_name = "Investment " + str(len(self.circuit.get_contingency_groups()))
 
-                # launch selection dialogue to add/remove from the selection
+                # launch selection dialogue to add/delete from the selection
                 names = [elm.type_name + ": " + elm.name for elm in selected]
                 self.investment_checks_diag = CheckListDialogue(objects_list=names,
                                                                 title="Add investment",
@@ -2320,7 +2408,7 @@ class DiagramsMain(CompiledArraysMain):
                                                                 group_label="Investment name",
                                                                 group_text=group_name)
                 self.investment_checks_diag.setModal(True)
-                self.investment_checks_diag.exec_()
+                self.investment_checks_diag.exec()
 
                 if self.investment_checks_diag.is_accepted:
 
@@ -2333,11 +2421,10 @@ class DiagramsMain(CompiledArraysMain):
                     # add the selection as investments to the group
                     for i in self.investment_checks_diag.selected_indices:
                         elm = selected[i]
-                        con = dev.Investment(device_idtag=elm.idtag,
+                        con = dev.Investment(device=elm,
                                              code=elm.code,
                                              name=elm.type_name + ": " + elm.name,
                                              CAPEX=0.0,
-                                             OPEX=0.0,
                                              group=group)
                         self.circuit.add_investment(con)
             else:
@@ -2353,7 +2440,7 @@ class DiagramsMain(CompiledArraysMain):
                                                            object_list=self.circuit.areas,
                                                            parent=self)
             self.object_select_window.setModal(True)
-            self.object_select_window.exec_()
+            self.object_select_window.exec()
 
             if self.object_select_window.selected_object is not None:
 
@@ -2366,7 +2453,7 @@ class DiagramsMain(CompiledArraysMain):
                                                            object_list=self.circuit.countries,
                                                            parent=self)
             self.object_select_window.setModal(True)
-            self.object_select_window.exec_()
+            self.object_select_window.exec()
 
             if self.object_select_window.selected_object is not None:
                 for k, bus, graphic_obj in self.get_current_buses():
@@ -2378,7 +2465,7 @@ class DiagramsMain(CompiledArraysMain):
                                                            object_list=self.circuit.zones,
                                                            parent=self)
             self.object_select_window.setModal(True)
-            self.object_select_window.exec_()
+            self.object_select_window.exec()
 
             if self.object_select_window.selected_object is not None:
                 for k, bus, graphic_obj in self.get_current_buses():
@@ -2399,7 +2486,7 @@ class DiagramsMain(CompiledArraysMain):
                                                            object_list=self.circuit.areas,
                                                            parent=self)
             self.object_select_window.setModal(True)
-            self.object_select_window.exec_()
+            self.object_select_window.exec()
 
             if self.object_select_window.selected_object is not None:
                 for k, bus, graphic_obj in self.get_selected_buses():
@@ -2411,7 +2498,7 @@ class DiagramsMain(CompiledArraysMain):
                                                            object_list=self.circuit.countries,
                                                            parent=self)
             self.object_select_window.setModal(True)
-            self.object_select_window.exec_()
+            self.object_select_window.exec()
 
             if self.object_select_window.selected_object is not None:
                 for k, bus, graphic_obj in self.get_selected_buses():
@@ -2423,7 +2510,7 @@ class DiagramsMain(CompiledArraysMain):
                                                            object_list=self.circuit.zones,
                                                            parent=self)
             self.object_select_window.setModal(True)
-            self.object_select_window.exec_()
+            self.object_select_window.exec()
 
             if self.object_select_window.selected_object is not None:
                 for k, bus, graphic_pbj in self.get_selected_buses():
@@ -2450,7 +2537,7 @@ class DiagramsMain(CompiledArraysMain):
     def delete_from_all_diagrams(self, elements: List[ALL_DEV_TYPES]):
         """
         Delete elements from all editors
-        :param elements: list of devices to delete from the graphics editors
+        :param elements: list of devices to delete_with_dialogue from the graphics editors
         :return:
         """
         for diagram_widget in self.diagram_widgets_list:
@@ -2460,6 +2547,8 @@ class DiagramsMain(CompiledArraysMain):
             elif isinstance(diagram_widget, GridMapWidget):
                 pass
 
+
+
     def search_diagram(self):
         """
         Search elements by name, code or idtag and center them in the screen
@@ -2468,7 +2557,7 @@ class DiagramsMain(CompiledArraysMain):
         dlg = InputSearchDialogue(deafault_value="",
                                   title="Search",
                                   prompt="Search object by name, code or idtag in the diagram")
-        if dlg.exec_():
+        if dlg.exec():
 
             if dlg.is_accepted:
                 diagram = self.get_selected_diagram_widget()
@@ -2537,9 +2626,10 @@ class DiagramsMain(CompiledArraysMain):
         if isinstance(diagram, SchematicWidget):
             diagram.enable_all_results_tags()
 
-    def call_delete_db_element(self, caller: Union[SchematicWidget, GridMapWidget], api_obj: ALL_DEV_TYPES):
+    def call_delete_db_element(self, caller: SchematicWidget | GridMapWidget | BaseDiagramWidget,
+                               api_obj: ALL_DEV_TYPES):
         """
-        This function is meant to be a master delete function that is passed to each diagram
+        This function is meant to be a master delete_with_dialogue function that is passed to each diagram
         so that when a diagram deletes an element, the element is deleted in all other diagrams
         :param caller:
         :param api_obj:
@@ -2547,14 +2637,14 @@ class DiagramsMain(CompiledArraysMain):
         """
         for diagram in self.diagram_widgets_list:
             if diagram != caller:
-                diagram.delete_diagram_element(device=api_obj, propagate=False)
+                diagram.delete_element_utility_function(device=api_obj, propagate=False)
 
         try:
             self.circuit.delete_element(obj=api_obj)
         except ValueError as e:
             print(e)
 
-    def set_diagrams_size_contraints(self):
+    def set_diagrams_size_constraints(self):
         """
         Set the size constraints
         """
@@ -2614,6 +2704,82 @@ class DiagramsMain(CompiledArraysMain):
 
         if diagram_widget is not None:
             ok = yes_no_question(text="The diagram coordinates will be saved into the corresponding properties "
-                                      "of the database, overwritting the existing ones. Do you want to do this?",
+                                      "of the database, overwriting the existing ones. Do you want to do this?",
                                  title="Consolidate diagram coordinates into the DB")
-            diagram_widget.consolidate_coordinates()
+            if ok:
+                diagram_widget.consolidate_coordinates()
+
+    def reset_diagram_coordinates(self):
+        """
+        Reset the diagram coordinates using the DB
+        :return:
+        """
+        diagram_widget = self.get_selected_diagram_widget()
+
+        if diagram_widget is not None:
+            ok = yes_no_question(text="The diagram coordinates will be reset to its database values. "
+                                      "Do you want to do this?",
+                                 title="Reset diagram coordinates using the DB")
+            if ok:
+                diagram_widget.reset_coordinates()
+                self.show_info_toast(message='Coordinates of substations and linelocations set to its database values.')
+
+    def rotate(self):
+        """
+        Rotate the selected diagram
+        :return:
+        """
+        diagram_widget = self.get_selected_diagram_widget()
+
+        if diagram_widget is not None:
+            dlg = InputNumberDialogue(min_value=-180, max_value=180,
+                                      default_value=-90, is_int=False,
+                                      title='Rotate diagram',
+                                      text=f'Rotation angle (degrees)')
+
+            if dlg.exec():
+                diagram_widget.rotate(dlg.value)
+
+    def preset_1(self):
+        """
+        Country sizes
+        """
+        self.ui.min_node_size_spinBox.setValue(2)
+        self.ui.max_node_size_spinBox.setValue(8)
+        self.ui.min_branch_size_spinBox.setValue(1)
+        self.ui.max_branch_size_spinBox.setValue(3)
+        self.ui.arrow_size_size_spinBox.setValue(1.5)
+        self.redraw_current_diagram()
+
+    def preset_2(self):
+        """
+        Region sizes
+        """
+        self.ui.min_node_size_spinBox.setValue(1)
+        self.ui.max_node_size_spinBox.setValue(2)
+        self.ui.min_branch_size_spinBox.setValue(0.1)
+        self.ui.max_branch_size_spinBox.setValue(0.2)
+        self.ui.arrow_size_size_spinBox.setValue(0.15)
+        self.redraw_current_diagram()
+
+    def preset_3(self):
+        """
+        Municipality sizes
+        """
+        self.ui.min_node_size_spinBox.setValue(0.1)
+        self.ui.max_node_size_spinBox.setValue(0.2)
+        self.ui.min_branch_size_spinBox.setValue(0.01)
+        self.ui.max_branch_size_spinBox.setValue(0.02)
+        self.ui.arrow_size_size_spinBox.setValue(0.015)
+        self.redraw_current_diagram()
+
+    def preset_4(self):
+        """
+        Street sizes
+        """
+        self.ui.min_node_size_spinBox.setValue(0.01)
+        self.ui.max_node_size_spinBox.setValue(0.02)
+        self.ui.min_branch_size_spinBox.setValue(0.001)
+        self.ui.max_branch_size_spinBox.setValue(0.002)
+        self.ui.arrow_size_size_spinBox.setValue(0.0015)
+        self.redraw_current_diagram()

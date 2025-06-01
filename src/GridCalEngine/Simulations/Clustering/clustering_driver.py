@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: MPL-2.0
 
 import numpy as np
-from typing import Union
 from GridCalEngine.Devices.multi_circuit import MultiCircuit
 from GridCalEngine.enumerations import SimulationTypes
 from GridCalEngine.Simulations.driver_template import DriverTemplate
@@ -20,7 +19,7 @@ class ClusteringDriver(DriverTemplate):
     def __init__(self, grid: MultiCircuit, options: ClusteringAnalysisOptions):
         """
         Clustering analysis driver constructor
-        :param grid: Multicircuit instance
+        :param grid: MultiCircuit instance
         :param options: ClusteringAnalysisOptions
         """
         DriverTemplate.__init__(self, grid=grid)

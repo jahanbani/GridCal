@@ -47,7 +47,7 @@ def find_islands_numba(node_number: int, indptr: IntVec, indices: IntVec, active
             # DFS: store in the island all the reachable vertices from current vertex "node"
             #
             # declare a stack with the initial node to visit (node)
-            stack = list()  # type: List[int]
+            stack: List[int] = list()  # type:
             stack.append(node)
 
             while len(stack) > 0:
@@ -453,6 +453,7 @@ def sum_per_bus_cx(nbus: int, bus_indices: IntVec, magnitude: CxVec) -> CxVec:
         res[bus_indices[i]] += magnitude[i]
     return res
 
+
 @nb.njit(cache=True)
 def sum_per_bus_bool(nbus: int, bus_indices: IntVec, magnitude: BoolVec) -> BoolVec:
     """
@@ -468,13 +469,13 @@ def sum_per_bus_bool(nbus: int, bus_indices: IntVec, magnitude: BoolVec) -> Bool
         res[bus_indices[i]] += magnitude[i]
     return res
 
+
 @nb.njit(cache=True)
 def dev_per_bus(nbus: int, bus_indices: IntVec) -> IntVec:
     """
     Summation of magnitudes per bus (bool)
     :param nbus: number of buses
     :param bus_indices: elements' bus indices
-    :param magnitude: elements' magnitude to add per bus
     :return: array of size nbus
     """
     res = np.zeros(nbus, dtype=np.int64)
